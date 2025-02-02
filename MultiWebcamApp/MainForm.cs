@@ -28,7 +28,7 @@ namespace MultiWebcamApp
             _closeButton.Location = new Point(x, y);
             _closeButton.Size = new Size(width, height);
             _closeButton.Font = new Font("±√º≠√º", 50);
-            _closeButton.BackColor = Color.LightPink;
+            _closeButton.BackColor = Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
             _closeButton.Text = "¡æ∑·";
             _closeButton.Click += new EventHandler(CloseButton_Click);
@@ -60,7 +60,7 @@ namespace MultiWebcamApp
             _toggleDelayButton.Location = new Point(x, y);
             _toggleDelayButton.Size = new Size(width, height);
             _toggleDelayButton.Font = new Font("±√º≠√º", 50);
-            _toggleDelayButton.BackColor = Color.AntiqueWhite;
+            _toggleDelayButton.BackColor = Color.LightGray;
             _toggleDelayButton.TextAlign = ContentAlignment.MiddleCenter;
             _toggleDelayButton.Text = "Ω√¿€";
             _toggleDelayButton.Click += new EventHandler(ToggleDelayButton_Click);
