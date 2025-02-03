@@ -1,5 +1,10 @@
-using System;
+ï»¿using System;
+using System.Drawing.Printing;
+using System.Text;
 using System.Windows.Forms;
+using System.Threading;
+using FontAwesome.Sharp;
+using System.Runtime.InteropServices;
 
 namespace MultiWebcamApp
 {
@@ -8,41 +13,52 @@ namespace MultiWebcamApp
         private WebcamForm _webcamFormHead = new WebcamForm(0);
         private WebcamForm _webcamFormBody = new WebcamForm(1);
         private int _delaySeconds = 0; 
-        private bool _isDelayed = false;
+        private bool _isStarted = false;
+        private bool _isPaused = false;
+        private bool _isSlowMode = false;
+
+        private System.Windows.Forms.Timer _backwardTimer;
+        private System.Windows.Forms.Timer _forwardTimer;
+        private System.Windows.Forms.Timer _backwardInitialTimer;
+        private System.Windows.Forms.Timer _forwardInitialTimer;
 
         public MainForm()
         {
-            const int margin = 100;
-            const int width = 300;
-            const int height = 300;
-            int x = margin, y = margin;
-
             InitializeComponent();
+            InitializeCustomControls();
+        }
 
-            // MainForm ¼Ó¼º
+        private void InitializeCustomControls()
+        {
+            int margin = 90;
+            int width = 300;
+            int height = 300;
+            int x = margin, y = margin + 90;
+
+            // MainForm ì†ì„±
             this.Location = new Point(0, 1080);
             this.Size = new Size(2560, 720);
             this.BackColor = Color.GhostWhite;
 
-            // Á¾·á ¹öÆ° Ãß°¡
+            // ì¢…ë£Œ ë²„íŠ¼ ì†ì„±
             _closeButton.Location = new Point(x, y);
             _closeButton.Size = new Size(width, height);
-            _closeButton.Font = new Font("±Ã¼­Ã¼", 50);
+            _closeButton.Font = new Font("ê¶ì„œì²´", 50);
             _closeButton.BackColor = Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
-            _closeButton.Text = "Á¾·á";
+            _closeButton.Text = "ì¢…ë£Œ";
             _closeButton.Click += new EventHandler(CloseButton_Click);
 
             x += width + margin;
 
-            // µô·¹ÀÌ ½½¶óÀÌ´õ Ãß°¡
-            _delayTextbox.Location = new Point(x + margin/2, y + margin/2);
-            _delayTextbox.Size = new Size(margin*2, margin);
+            // ì§€ì—° ì‹œê°„ íŠ¸ëž™ë°” ì†ì„±
+            _delayTextbox.Location = new Point(x + margin / 2, y + margin / 2);
+            _delayTextbox.Size = new Size(margin * 2, margin);
             _delayTextbox.Font = new Font("Arial", margin);
             _delayTextbox.TextAlign = HorizontalAlignment.Center;
             _delayTextbox.BackColor = Color.Black;
             _delayTextbox.ForeColor = Color.Red;
-            _delayTextbox.BorderStyle = BorderStyle.None;
+            _delayTextbox.BorderStyle = BorderStyle.FixedSingle;
             _delayTextbox.Text = "0";
 
             _delaySlider.Location = new Point(x, y + height - margin);
@@ -56,14 +72,127 @@ namespace MultiWebcamApp
 
             x += width + margin;
 
-            // µô·¹ÀÌ Åä±Û ¹öÆ° Ãß°¡
-            _toggleDelayButton.Location = new Point(x, y);
-            _toggleDelayButton.Size = new Size(width, height);
-            _toggleDelayButton.Font = new Font("±Ã¼­Ã¼", 50);
-            _toggleDelayButton.BackColor = Color.LightGray;
-            _toggleDelayButton.TextAlign = ContentAlignment.MiddleCenter;
-            _toggleDelayButton.Text = "½ÃÀÛ";
-            _toggleDelayButton.Click += new EventHandler(ToggleDelayButton_Click);
+            // ì‹œìž‘ë²„íŠ¼ ì†ì„±
+            _startButton.Location = new Point(x, y);
+            _startButton.Size = new Size(width, height);
+            _startButton.Font = new Font("ê¶ì„œì²´", 50);
+            _startButton.BackColor = Color.LightGray;
+            _startButton.TextAlign = ContentAlignment.MiddleCenter;
+            _startButton.Text = "ì‹œìž‘";
+            _startButton.Click += new EventHandler(StartButton_Click);
+
+            x += width + margin;
+
+            margin = 90;
+            width = 200;
+            height = 200;
+            y += 50;
+
+            // ë’¤ë¡œê°€ê¸° ë²„íŠ¼
+            _backwardButton.Location = new Point(x, y);
+            _backwardButton.Size = new Size(width, height);
+            _backwardButton.FlatStyle = FlatStyle.Flat;
+            _backwardButton.FlatAppearance.BorderSize = 2;
+            _backwardButton.BackColor = Color.LightGray;
+            _backwardButton.Text = "";
+            _backwardButton.IconChar = IconChar.StepBackward;
+            _backwardButton.IconSize = 100;
+            //_backwardButton.Click += new EventHandler(BackwardButton_Click);
+            _backwardButton.MouseDown += new MouseEventHandler(BackwardButton_MouseDown);
+            _backwardButton.MouseUp += new MouseEventHandler(BackwardButton_MouseUp);
+
+            x += width + margin;
+
+            // ì¼ì‹œì •ì§€ ë²„íŠ¼
+            _pauseButton.Location = new Point(x, y);
+            _pauseButton.Size = new Size(width, height);
+            _pauseButton.FlatStyle = FlatStyle.Flat;
+            _pauseButton.FlatAppearance.BorderSize = 2;
+            _pauseButton.BackColor = Color.LightGray;
+            _pauseButton.Text = "";
+            _pauseButton.IconChar = IconChar.Play;
+            _pauseButton.IconSize = 100;
+            _pauseButton.Click += new EventHandler(PauseButton_Click);
+
+            x += width + margin;
+
+            // ì•žìœ¼ë¡œê°€ê¸° ë²„íŠ¼íŠ¼
+            _forwardButton.Location = new Point(x, y);
+            _forwardButton.Size = new Size(width, height);
+            _forwardButton.FlatStyle = FlatStyle.Flat;
+            _forwardButton.FlatAppearance.BorderSize = 2;
+            _forwardButton.BackColor = Color.LightGray;
+            _forwardButton.Text = "";
+            _forwardButton.IconChar = IconChar.StepForward;
+            _forwardButton.IconSize = 100;
+            //_forwardButton.Click += new EventHandler(ForwardButton_Click);
+            _forwardButton.MouseDown += new MouseEventHandler(ForwardButton_MouseDown);
+            _forwardButton.MouseUp += new MouseEventHandler(ForwardButton_MouseUp);
+
+            margin = 100;
+            x += width + margin;
+
+            width = 300;
+            height = 300;
+            y -= 50;
+
+            // ìŠ¬ë¡œìš°ëª¨ë“œ ë²„íŠ¼
+            _slowButton.Location = new Point(x, y);
+            _slowButton.Size = new Size(width, height);
+            _slowButton.Font = new Font("ê¶ì„œì²´", 50);
+            _slowButton.BackColor = Color.LightGray;
+            _slowButton.TextAlign= ContentAlignment.MiddleCenter;
+            _slowButton.Text = "Slow";
+            _slowButton.Click += new EventHandler(SlowButton_Click);
+
+            // ë²„íŠ¼ íƒ€ì´ë¨¸
+            _backwardTimer = new System.Windows.Forms.Timer { Interval = 100 };
+            _backwardTimer.Tick += (s, e) => BackwardButton_Click(s, e);
+
+            _forwardTimer = new System.Windows.Forms.Timer { Interval = 100 };
+            _forwardTimer.Tick += (s, e) => ForwardButton_Click(s, e);
+
+            _backwardInitialTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _backwardInitialTimer.Tick += (s, e) => StartBackwardTimer();
+
+            _forwardInitialTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _forwardInitialTimer.Tick += (s, e) => StartForwardTimer();
+        }
+
+        private void BackwardButton_MouseDown(object sender, MouseEventArgs e)
+        {
+            BackwardButton_Click(sender, e);
+            _backwardInitialTimer.Start();
+        }
+
+        private void BackwardButton_MouseUp(object sender, MouseEventArgs e)
+        {
+            _backwardInitialTimer.Stop();
+            _backwardTimer.Stop();
+        }
+
+        private void ForwardButton_MouseDown(object sender, MouseEventArgs e)
+        {
+            ForwardButton_Click(sender, e);
+            _forwardInitialTimer.Start();
+        }
+
+        private void ForwardButton_MouseUp(object sender, MouseEventArgs e)
+        {
+            _forwardInitialTimer.Stop();
+            _forwardTimer.Stop();
+        }
+
+        private void StartBackwardTimer()
+        {
+            _backwardInitialTimer.Stop();
+            _backwardTimer.Start();
+        }
+
+        private void StartForwardTimer()
+        {
+            _forwardInitialTimer.Stop();
+            _forwardTimer.Start();
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -80,10 +209,10 @@ namespace MultiWebcamApp
 
                 var monitor2 = screens[1];
                 this.StartPosition = FormStartPosition.Manual;
-                this.Location = monitor2.WorkingArea.Location; // 2¹ø ¸ð´ÏÅÍÀÇ À§Ä¡·Î ÀÌµ¿
-                this.Size = monitor2.WorkingArea.Size; // 2¹ø ¸ð´ÏÅÍ Å©±â ¼³Á¤
-                this.FormBorderStyle = FormBorderStyle.None; // Å×µÎ¸® Á¦°Å
-                this.WindowState = FormWindowState.Maximized; // ÃÖ´ëÈ­
+                this.Location = monitor2.WorkingArea.Location; 
+                this.Size = monitor2.WorkingArea.Size;
+                this.FormBorderStyle = FormBorderStyle.None;
+                this.WindowState = FormWindowState.Maximized; 
 
                 var monitor3 = screens[3];
                 _webcamFormBody.StartPosition = FormStartPosition.Manual;
@@ -93,6 +222,7 @@ namespace MultiWebcamApp
                 _webcamFormBody.WindowState = FormWindowState.Maximized;
             }
 
+            this.Location = new Point(0, 720);
             _webcamFormHead.Text = "Head";
             _webcamFormHead.Show();
             _webcamFormBody.Text = "Body";
@@ -101,32 +231,81 @@ namespace MultiWebcamApp
 
         private void DelaySlider_ValueChanged(object sender, EventArgs e)
         {
-            // ½½¶óÀÌ´õ °ªÀ» ÀÐ¾î µô·¹ÀÌ ½Ã°£ ¼³Á¤
             _delaySeconds = ((CustomTrackBar)sender).Value;
             _delayTextbox.Text = _delaySeconds.ToString();
+            _webcamFormHead.SetDelay(_delaySeconds);
+            _webcamFormBody.SetDelay(_delaySeconds);
         }
 
-        private void ToggleDelayButton_Click(object sender, EventArgs e)
+        private void StartButton_Click(object sender, EventArgs e)
         {
-            _isDelayed = !_isDelayed;
-            // ¹öÆ° »óÅÂ¿¡ µû¶ó Áö¿¬ ¼ÛÃâ ½ÃÀÛ ¶Ç´Â ÁßÁö
-            if (_isDelayed)
+            _isStarted = !_isStarted;
+            if (_isStarted)
             {
-                _webcamFormHead.StartDelay(_delaySeconds);
-                _webcamFormBody.StartDelay(_delaySeconds);
-                _toggleDelayButton.Text = "´ë±â";
+                _startButton.Text = "ëŒ€ê¸°";
+                _isPaused = false;
             }
             else
             {
-                _webcamFormHead.StopDelay();
-                _webcamFormBody.StopDelay();
-                _toggleDelayButton.Text = "½ÃÀÛ";
+                _startButton.Text = "ì‹œìž‘";
+                _isPaused = true;
             }
+            UpdatePlayPauseButton();
+            _webcamFormHead.SetKey("r");
+            _webcamFormBody.SetKey("r");
+        }
+
+        private void BackwardButton_Click(Object sender, EventArgs e)
+        {
+            if (_isStarted)
+            {
+                _isPaused = true;
+                UpdatePlayPauseButton();
+                _webcamFormHead.SetKey("a");
+                _webcamFormBody.SetKey("a");
+            }
+        }
+
+        private void PauseButton_Click(Object sender, EventArgs e)
+        {
+            if (_isStarted)
+            {
+                _isPaused = !_isPaused;
+                UpdatePlayPauseButton();
+                _webcamFormHead.SetKey("p");
+                _webcamFormBody.SetKey("p");
+            }
+        }
+
+        private void ForwardButton_Click(Object sender, EventArgs e)
+        {
+            if (_isStarted)
+            {
+                _isPaused = true;
+                UpdatePlayPauseButton();
+                _webcamFormHead.SetKey("d");
+                _webcamFormBody.SetKey("d");
+            }
+        }
+
+        private void SlowButton_Click(Object sender, EventArgs e)
+        {
+            if (_isStarted)
+            {
+                _isSlowMode = !_isSlowMode;
+                _slowButton.BackColor = _isSlowMode ? Color.DarkGray : Color.LightGray;
+                _webcamFormHead.SetKey("s");
+                _webcamFormBody.SetKey("s");
+            }
+        }
+
+        private void UpdatePlayPauseButton()
+        {
+            _pauseButton.IconChar = _isPaused ? IconChar.Play : IconChar.Pause;
         }
 
         private void CloseButton_Click(object sender, EventArgs e)
         {
-            // ¸ðµç WebcamForm ´Ý±â
             _webcamFormHead.Close();
             _webcamFormBody.Close();
             this.Close();

@@ -6,9 +6,11 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FontAwesome.Sharp" Version="6.6.0" />
     <PackageReference Include="OpenCvSharp4" Version="4.10.0.20241108" />
     <PackageReference Include="OpenCvSharp4.Extensions" Version="4.10.0.20241108" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
