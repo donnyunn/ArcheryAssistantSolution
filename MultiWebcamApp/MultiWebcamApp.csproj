@@ -18,4 +18,8 @@
     <PackageReference Include="OpenCvSharp4.Windows" Version="4.10.0.20241108" />
   </ItemGroup>
 
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="if $(ConfigurationName)==Release xcopy &quot;$(TargetDir)*&quot; &quot;C:\Users\dulab\Documents\ArcheryAssistantSolution&quot; /Y /R /E" />
+  </Target>
+
 </Project>
