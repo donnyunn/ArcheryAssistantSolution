@@ -57,28 +57,50 @@ namespace PressureMapViewer
                     int stride = heatmapBitmap.BackBufferStride;
                     int scale = DisplaySize / SensorSize;
 
-                    for (int y = 0; y < SensorSize; y++)
+                    Parallel.For(0, SensorSize, y =>
                     {
                         for (int x = 0; x < SensorSize; x++)
                         {
                             int index = y * SensorSize + x;
                             double value = data[index] / 1024.0;
                             Color color = GetHeatmapColor(value);
-                            int colorData = (color.R << 16) | (color.G << 8) | color.B;
+                            int colorData = (color.R << 16) | (color.G << 8) | (color.B);
 
-                            //*((int*)pBackBuffer + y * stride / 4 + x) = colorData;
-                            // 확대하여 적용
+                            int baseY = y * scale;
+                            int baseX = x * scale;
                             for (int dy = 0; dy < scale; dy++)
                             {
+                                int rowOffset = (baseY + dy) * stride / 4;
                                 for (int dx = 0; dx < scale; dx++)
                                 {
-                                    int newX = x * scale + dx;
-                                    int newY = y * scale + dy;
-                                    *((int*)pBackBuffer + newY * stride / 4 + newX) = colorData;
+                                    *((int*)pBackBuffer + rowOffset + (baseX + dx)) = colorData;
                                 }
                             }
                         }
-                    }
+                    });
+
+                    //for (int y = 0; y < SensorSize; y++)
+                    //{
+                    //    for (int x = 0; x < SensorSize; x++)
+                    //    {
+                    //        int index = y * SensorSize + x;
+                    //        double value = data[index] / 1024.0;
+                    //        Color color = GetHeatmapColor(value);
+                    //        int colorData = (color.R << 16) | (color.G << 8) | color.B;
+
+                    //        //*((int*)pBackBuffer + y * stride / 4 + x) = colorData;
+                    //        // 확대하여 적용
+                    //        for (int dy = 0; dy < scale; dy++)
+                    //        {
+                    //            for (int dx = 0; dx < scale; dx++)
+                    //            {
+                    //                int newX = x * scale + dx;
+                    //                int newY = y * scale + dy;
+                    //                *((int*)pBackBuffer + newY * stride / 4 + newX) = colorData;
+                    //            }
+                    //        }
+                    //    }
+                    //}
                 }
 
                 heatmapBitmap.AddDirtyRect(new Int32Rect(0, 0, DisplaySize, DisplaySize));

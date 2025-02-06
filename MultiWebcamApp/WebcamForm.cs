@@ -190,11 +190,19 @@ namespace MultiWebcamApp
         private void DisplayFrame(Mat mat, string msg = "", string msg2 = "")
         {
             var bitmap = BitmapConverter.ToBitmap(mat);
-            _pictureBox.Invoke(new Action(() =>
+
+            try
             {
-                _pictureBox.Image?.Dispose();
-                _pictureBox.Image = bitmap;
-            }));
+                _pictureBox.Invoke(new Action(() =>
+                {
+                        _pictureBox.Image?.Dispose();
+                        _pictureBox.Image = bitmap;
+                }));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
             UpdateStatusLabel(msg, msg2);
         }
 
@@ -251,28 +259,35 @@ namespace MultiWebcamApp
 
         private void UpdateStatusLabel(string str, string str2)
         {
-            Invoke(new Action(() =>
+            try
             {
-                switch (_state)
+                Invoke(new Action(() =>
                 {
-                    case _mode.Idle:
-                        _statusLabel.Text = str;
-                        _statusLabel2.Text = str2;
-                        break;
-                    case _mode.Play:
-                        _statusLabel.Text = str;
-                        _statusLabel2.Text = str2;
-                        break;
-                    case _mode.Replay:
-                        _statusLabel.Text = str;
-                        _statusLabel2.Text = str2;
-                        break;
-                    case _mode.Stop:
-                        _statusLabel.Text = str;
-                        _statusLabel2.Text = str2;
-                        break;
-                }
-            }));
+                    switch (_state)
+                    {
+                        case _mode.Idle:
+                            _statusLabel.Text = str;
+                            _statusLabel2.Text = str2;
+                            break;
+                        case _mode.Play:
+                            _statusLabel.Text = str;
+                            _statusLabel2.Text = str2;
+                            break;
+                        case _mode.Replay:
+                            _statusLabel.Text = str;
+                            _statusLabel2.Text = str2;
+                            break;
+                        case _mode.Stop:
+                            _statusLabel.Text = str;
+                            _statusLabel2.Text = str2;
+                            break;
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
         }
 
         private void ClearBuffer()
