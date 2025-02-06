@@ -5,6 +5,8 @@ VisualStudioVersion = 17.12.35527.113
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MultiWebcamApp", "MultiWebcamApp\MultiWebcamApp.csproj", "{2AA65406-C664-4662-B903-A12BF881A66D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PressureMapViewer", "PressureMapViewer\PressureMapViewer.csproj", "{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,14 @@ Global
 		{2AA65406-C664-4662-B903-A12BF881A66D}.Release|Any CPU.Build.0 = Release|x64
 		{2AA65406-C664-4662-B903-A12BF881A66D}.Release|x64.ActiveCfg = Release|x64
 		{2AA65406-C664-4662-B903-A12BF881A66D}.Release|x64.Build.0 = Release|x64
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Debug|x64.Build.0 = Debug|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Release|x64.ActiveCfg = Release|Any CPU
+		{A720C2F7-9DA6-4B8A-884C-C3A5355658AD}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

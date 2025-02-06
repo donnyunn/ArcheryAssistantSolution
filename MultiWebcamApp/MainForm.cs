@@ -12,6 +12,7 @@ namespace MultiWebcamApp
     {
         private WebcamForm _webcamFormHead = new WebcamForm(0);
         private WebcamForm _webcamFormBody = new WebcamForm(1);
+        private FootpadForm _footpadForm = new FootpadForm();
         private int _delaySeconds = 0; 
         private bool _isStarted = false;
         private bool _isPaused = false;
@@ -220,6 +221,13 @@ namespace MultiWebcamApp
                 _webcamFormBody.Size = monitor3.WorkingArea.Size;
                 _webcamFormBody.FormBorderStyle = FormBorderStyle.None;
                 _webcamFormBody.WindowState = FormWindowState.Maximized;
+
+                var monitor0 = screens[0];
+                _footpadForm.StartPosition = FormStartPosition.Manual;
+                _footpadForm.Location = monitor0.WorkingArea.Location;
+                _footpadForm.Size = monitor0.WorkingArea.Size;
+                _footpadForm.FormBorderStyle = FormBorderStyle.None;
+                _footpadForm.WindowState = FormWindowState.Maximized;
             }
 
             this.Location = new Point(0, 720);
@@ -227,6 +235,8 @@ namespace MultiWebcamApp
             _webcamFormHead.Show();
             _webcamFormBody.Text = "Body";
             _webcamFormBody.Show();
+
+            _footpadForm.Show();
         }
 
         private void DelaySlider_ValueChanged(object sender, EventArgs e)
