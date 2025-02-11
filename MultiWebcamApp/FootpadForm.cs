@@ -1,25 +1,62 @@
 ﻿using System;
 using System.IO.Ports;
 using System.Linq;
+using System.Collections.Generic;
 using System.Text;
 using System.Windows.Forms;
 
 namespace MultiWebcamApp
 {
+    public class FootpadDevice
+    {
+        public SerialPort Port {  get; private set; }
+        public int QuadrantIndex { get; private set; }
+        public ushort[] LastData { get; set; }
+        public bool HasNewData { get; set; }
+        public byte[] ReceiveBuffer { get; set; } = new byte[0];
+
+        public FootpadDevice(string portName, int quadrantIndex)
+        {
+            QuadrantIndex = quadrantIndex;
+            LastData = new ushort[48 * 48];
+            InitializePort(portName);
+        }
+
+        private void InitializePort(string portName)
+        {
+            Port = new SerialPort(portName, 3000000, Parity.None, 8, StopBits.One);
+            try
+            {
+                Port.Open();
+            }
+            catch (Exception)
+            {
+
+            }
+        }
+
+        public void Close()
+        {
+            if (Port?.IsOpen == true)
+            {
+                Port.Close();
+                Port.Dispose();
+            }
+        }
+    }
+
     public partial class FootpadForm : Form
     {
-        private SerialPort serialPort;
-        private System.Windows.Forms.Timer timer;
-        private const int Baudrate = 3000000;
         private const int DataRequestInterval = 33;
-        private byte[] receiveBuffer = new byte[0];
-
+        private System.Windows.Forms.Timer timer;
+        private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
         private PressureMapViewer.MainWindow pressureMapWindow;
+        private readonly object dataLock = new object();
 
         public FootpadForm()
         {
             InitializeComponent();
-            InitializeSerialPort();
+            InitializeDevices();
             InitializeTimer();
         }
 
@@ -41,25 +78,51 @@ namespace MultiWebcamApp
             //pressureMapWindow.WindowState = System.Windows.WindowState.Maximized;
         }
 
-        private void InitializeSerialPort()
+        private void InitializeDevices()
         {
-            string[] ports = SerialPort.GetPortNames();
-            if (ports.Length < 2)
-            {
-                Console.WriteLine("연결된 COM 포트가 없습니다.");
-                return;
-            }
+            var ports = SerialPort.GetPortNames()
+                .Where(p => p != "COM1")
+                .OrderBy(p => p)
+                .ToList();
 
-            serialPort = new SerialPort(ports[1], Baudrate, Parity.None, 8, StopBits.One);
-            serialPort.DataReceived += SerialPort_DataReceived;
-
-            try
+            // 최대 4개의 포트만 사용
+            for (int i = 0; i < Math.Min(4, ports.Count); i++)
             {
-                serialPort.Open();
+                var device = new FootpadDevice(ports[i], i);
+                devices[i] = device;
+                if (device.Port.IsOpen)
+                {
+                    device.Port.DataReceived += (s, e) => SerialPort_DataReceived(device, e);
+                }
             }
-            catch (Exception ex)
+        }
+
+        private void CheckForNewDevices()
+        {
+            var currentPorts = SerialPort.GetPortNames()
+                .Where(p => p != "COM1")
+                .OrderBy(p => p)
+                .ToList();
+
+            // 현재 연결된 포트들 중에서 아직 등록되지 않은 포트 확인
+            for (int i = 0; i < Math.Min(4, currentPorts.Count); i++)
             {
-                Console.WriteLine($"COM 포트 열기 실패: {ex:Message}");
+                if (!devices.ContainsKey(i) || !devices[i].Port.IsOpen)
+                {
+                    // 기존 장치가 있다면 정리
+                    if (devices.ContainsKey(i))
+                    {
+                        devices[i].Close();
+                    }
+
+                    // 새 장치 초기화
+                    var device = new FootpadDevice(currentPorts[i], i);
+                    devices[i] = device;
+                    if (device.Port.IsOpen)
+                    {
+                        device.Port.DataReceived += (s, e) => SerialPort_DataReceived(device, e);
+                    }
+                }
             }
         }
 
@@ -79,90 +142,125 @@ namespace MultiWebcamApp
         private void SendRequestPacket()
         {
             byte[] requestPacket = new byte[] { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
-            if (serialPort != null && serialPort.IsOpen)
+            foreach (var device in devices.Values)
             {
-                serialPort.Write(requestPacket, 0, requestPacket.Length);
+                device.Port.Write(requestPacket, 0, requestPacket.Length);
             }
         }
 
-        private void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
+        private void SerialPort_DataReceived(FootpadDevice device, SerialDataReceivedEventArgs e)
         {
-            if (serialPort.BytesToRead > 0)
+            if (!device.Port.IsOpen) return;
+
+            int bytesToRead = device.Port.BytesToRead;
+            if (bytesToRead == 0) return;
+
+            byte[] buffer = new byte[bytesToRead];
+            device.Port.Read(buffer, 0, buffer.Length);
+
+            lock (dataLock)
             {
-                byte[] buffer = new byte[serialPort.BytesToRead];
-                serialPort.Read(buffer, 0, buffer.Length);
-
-                receiveBuffer = CombineArrays(receiveBuffer, buffer);
-
-                ProcessReceivedData();
+                device.ReceiveBuffer = CombineArrays(device.ReceiveBuffer, buffer);
+                ProcessReceivedData(device);
             }
         }
 
-        private void ProcessReceivedData()
+        private void ProcessReceivedData(FootpadDevice device)
         {
-            // 패킷의 최소 길이 (헤더 5바이트 + 커맨드 2바이트 + 데이터 길이 4바이트 + 테일 3바이트)
             const int minPacketLength = 14;
 
-            while (receiveBuffer.Length >= minPacketLength)
+            while (device.ReceiveBuffer.Length >= minPacketLength)
             {
                 // 헤더 확인 (53 41 31 41 33)
-                if (receiveBuffer[0] != 0x53 || receiveBuffer[1] != 0x41 || receiveBuffer[2] != 0x31 || receiveBuffer[3] != 0x41 || receiveBuffer[4] != 0x33)
+                if (!CheckHeader(device.ReceiveBuffer))
                 {
-                    // 헤더가 맞지 않으면 첫 번째 바이트 제거
-                    receiveBuffer = RemoveFirstByte(receiveBuffer);
+                    device.ReceiveBuffer = RemoveFirstByte(device.ReceiveBuffer);
                     continue;
                 }
 
-                // 데이터 길이 추출 (패킷 7~10: 아스키로 된 헥사 값)
-                string dataLengthHex = Encoding.ASCII.GetString(receiveBuffer, 7, 4);
-                int dataLength = Convert.ToInt32(dataLengthHex, 16); // 헥사 값을 정수로 변환
+                // 데이터 길이 추출
+                if (!TryGetDataLength(device.ReceiveBuffer, out int dataLength))
+                {
+                    device.ReceiveBuffer = RemoveFirstByte(device.ReceiveBuffer);
+                    continue;
+                }
 
-                // 전체 패킷 길이 계산 (헤더 5 + 커맨드 2 + 데이터 길이 4 + 데이터 + 테일 3)
                 int totalPacketLength = 14 + dataLength;
+                if (device.ReceiveBuffer.Length < totalPacketLength) break;
 
-                // 버퍼에 전체 패킷이 도착했는지 확인
-                if (receiveBuffer.Length < totalPacketLength)
+                // 테일 확인
+                if (!CheckTail(device.ReceiveBuffer, totalPacketLength))
                 {
-                    break; // 아직 패킷이 완전히 도착하지 않음
-                }
-
-                // 테일 확인 (46 46 45)
-                if (receiveBuffer[totalPacketLength - 3] != 0x46 || receiveBuffer[totalPacketLength - 2] != 0x46 || receiveBuffer[totalPacketLength - 1] != 0x45)
-                {
-                    // 테일이 맞지 않으면 첫 번째 바이트 제거
-                    receiveBuffer = RemoveFirstByte(receiveBuffer);
+                    device.ReceiveBuffer = RemoveFirstByte(device.ReceiveBuffer);
                     continue;
                 }
 
-                // 유효한 패킷 추출
+                // 패킷 추출 및 처리
                 byte[] packet = new byte[totalPacketLength];
-                Array.Copy(receiveBuffer, 0, packet, 0, totalPacketLength);
+                Array.Copy(device.ReceiveBuffer, 0, packet, 0, totalPacketLength);
+                device.ReceiveBuffer = RemoveFirstBytes(device.ReceiveBuffer, totalPacketLength);
 
-                // 버퍼에서 처리된 패킷 제거
-                receiveBuffer = RemoveFirstBytes(receiveBuffer, totalPacketLength);
-
-                // 데이터 처리
-                ProcessResponsePacket(packet);
+                ProcessDevicePacket(device, packet);
             }
         }
 
-        private void ProcessResponsePacket(byte[] packet)
+        private void ProcessDevicePacket(FootpadDevice device, byte[] packet)
         {
-            // 데이터 부분 추출 (패킷의 11번째 바이트부터 끝에서 3바이트 전까지)
             int dataStartIndex = 11;
             int dataLength = packet.Length - 14;
             byte[] dataBytes = new byte[dataLength];
             Array.Copy(packet, dataStartIndex, dataBytes, 0, dataLength);
 
-            // 데이터 디코딩 (2바이트씩 uint16_t로 변환)
+            // 데이터 디코딩
             ushort[] sensorData = new ushort[dataLength / 2];
             for (int i = 0; i < sensorData.Length; i++)
             {
                 sensorData[i] = BitConverter.ToUInt16(dataBytes, i * 2);
             }
 
-            // 화면에 데이터 표시
-            DisplaySensorData(sensorData);
+            device.LastData = sensorData;
+            device.HasNewData = true;
+
+            // 모든 장치에서 새 데이터가 있는지 확인
+            if (devices.Values.All(d => d.HasNewData || !d.Port.IsOpen))
+            {
+                CombineAndUpdateData();
+            }
+        }
+
+        private void CombineAndUpdateData()
+        {
+            ushort[] combinedData = new ushort[96 * 96];
+
+            // 4개 영역의 데이터를 96x96 배열로 통합
+            for (int i = 0; i < 96; i++)
+            {
+                for (int j = 0; j < 96; j++)
+                {
+                    int quadrant = (i < 48 ? 0 : 1) + (j < 48 ? 0 : 2);
+                    int sourceI = i % 48;
+                    int sourceJ = j % 48;
+                    int sourceIndex = sourceI * 48 + sourceJ;
+
+                    if (devices.ContainsKey(quadrant) && devices[quadrant].Port.IsOpen)
+                    {
+                        combinedData[i * 96 + j] = devices[quadrant].LastData[sourceIndex];
+                    }
+                    // 없는 영역은 0으로 채움
+                }
+            }
+
+            // 모든 장치의 HasNewData 플래그 리셋
+            foreach (var device in devices.Values)
+            {
+                device.HasNewData = false;
+            }
+
+            // UI 업데이트
+            pressureMapWindow?.Dispatcher.Invoke(() =>
+            {
+                pressureMapWindow.UpdatePressureData(combinedData);
+            });
         }
 
         private void DisplaySensorData(ushort[] sensorData)
@@ -203,11 +301,34 @@ namespace MultiWebcamApp
             return result;
         }
 
+        private bool CheckHeader(byte[] buffer) =>
+            buffer[0] == 0x53 && buffer[1] == 0x41 && buffer[2] == 0x31 &&
+            buffer[3] == 0x41 && buffer[4] == 0x33;
+
+        private bool CheckTail(byte[] buffer, int totalLength) =>
+            buffer[totalLength - 3] == 0x46 && buffer[totalLength - 2] == 0x46 &&
+            buffer[totalLength - 1] == 0x45;
+
+        private bool TryGetDataLength(byte[] buffer, out int dataLength)
+        {
+            try
+            {
+                string dataLengthHex = Encoding.ASCII.GetString(buffer, 7, 4);
+                dataLength = Convert.ToInt32(dataLengthHex, 16);
+                return true;
+            }
+            catch
+            {
+                dataLength = 0;
+                return false;
+            }
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            if (serialPort != null && serialPort.IsOpen)
+            foreach (var device in devices.Values)
             {
-                serialPort.Close();
+                device.Close();
             }
             timer.Stop();
             base.OnFormClosed(e);
