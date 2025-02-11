@@ -1,39 +1,47 @@
-﻿using System.Text;
+﻿using System;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using System.Linq;
 
 namespace PressureMapViewer
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
         private const int SensorSize = 96;
-        private WriteableBitmap heatmapBitmap;
-        private MeshGeometry3D meshGeometry;
-        private DiffuseMaterial meshMaterial;
-        private GeometryModel3D geometryModel;
-        private double rotationAngle = 0;
+        private const double INITIAL_POSITION_Y = 3.0;
+        private const double INITIAL_POSITION_Z = 3.0;
+        private const double INITIAL_LOOK_Y = -1.0;
+        private const double INITIAL_LOOK_Z = -1.0;
 
+        private WriteableBitmap heatmapBitmap;
+        private double rotationAngle = 0;
+        private double cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
+        private double cameraHeight = INITIAL_POSITION_Z;
         private Point lastMousePosition;
         private bool isMouseDragging = false;
-        private double cameraDistance = 5.0;
-        private double cameraHeight = 4.0;
+
+        private Point3D initialPosition;
+        private Vector3D initialLookDirection;
+        private Vector3D initialUpDirection;
 
         public MainWindow()
         {
             InitializeComponent();
             InitializeHeatmap();
             Initialize3DView();
+
+            // 초기 카메라 위치 설정
+            initialPosition = new Point3D(0, INITIAL_POSITION_Y, INITIAL_POSITION_Z);
+            initialLookDirection = new Vector3D(0, INITIAL_LOOK_Y, INITIAL_LOOK_Z);
+            initialUpDirection = new Vector3D(0, 1, 0);
+
+            // 초기 카메라 위치 설정
+            camera.Position = initialPosition;
+            camera.LookDirection = initialLookDirection;
+            camera.UpDirection = initialUpDirection;
         }
 
         private void InitializeHeatmap()
@@ -49,15 +57,7 @@ namespace PressureMapViewer
 
         private void Initialize3DView()
         {
-            meshGeometry = new MeshGeometry3D();
-            meshMaterial = new DiffuseMaterial(new SolidColorBrush(Colors.Blue));
-            geometryModel = new GeometryModel3D(meshGeometry, meshMaterial);
-
-            var modelVisual = new ModelVisual3D();
-            modelVisual.Content = geometryModel;
-            viewport3D.Children.Add(modelVisual);
-
-            // 마우스 조작 이벤트 추가
+            // 마우스 이벤트 핸들러
             viewport3D.MouseWheel += Viewport3D_MouseWheel;
             viewport3D.MouseLeftButtonDown += Viewport3D_MouseLeftButtonDown;
             viewport3D.MouseLeftButtonUp += Viewport3D_MouseLeftButtonUp;
@@ -108,81 +108,183 @@ namespace PressureMapViewer
             }
         }
 
-        private Color GetHeatmapColor(double value)
-        {
-            return Color.FromRgb(
-                (byte)(value * 255),  // R
-                0,                    // G
-                (byte)((1 - value) * 255) // B
-            );
-        }
-
         private void Update3DMesh(ushort[] data)
         {
-            var positions = new Point3DCollection();
-            var triangleIndices = new Int32Collection();
-            var colors = new List<Color>();
-
-            // Nomalized factor
+            var geometryGroup = new Model3DGroup();
             double maxPressure = data.Max();
             double scale = 1.0 / maxPressure;
 
-            // vertical axises
+            // 포인트 배열 생성 및 스무딩을 위한 데이터 처리
+            double[,] smoothedHeights = new double[SensorSize, SensorSize];
             for (int z = 0; z < SensorSize; z++)
             {
                 for (int x = 0; x < SensorSize; x++)
                 {
-                    double normalizedX = x / (double)(SensorSize - 1) * 2 - 1;
-                    double normalizedZ = z / (double)(SensorSize - 1) * 2 - 1;
-                    double height = data[z * SensorSize + x] * scale;
-
-                    positions.Add(new Point3D(normalizedX, height, normalizedZ));
-
-                    Color color = GetHeightColor(height);
-                    colors.Add(color);
+                    // 주변 포인트들의 평균으로 스무딩
+                    double sum = 0;
+                    int count = 0;
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int newX = x + dx;
+                            int newZ = z + dz;
+                            if (newX >= 0 && newX < SensorSize && newZ >= 0 && newZ < SensorSize)
+                            {
+                                sum += data[newZ * SensorSize + newX] * scale;
+                                count++;
+                            }
+                        }
+                    }
+                    smoothedHeights[x, z] = sum / count;
                 }
             }
 
-            // triangle index
+            // 각 격자별로 메시 생성
             for (int z = 0; z < SensorSize - 1; z++)
             {
                 for (int x = 0; x < SensorSize - 1; x++)
                 {
-                    int baseIndex = z * SensorSize + x;
+                    var cellMesh = new MeshGeometry3D();
 
-                    triangleIndices.Add(baseIndex);
-                    triangleIndices.Add(baseIndex + SensorSize);
-                    triangleIndices.Add(baseIndex + 1);
+                    double normalizedX = x / (double)(SensorSize - 1) * 2 - 1;
+                    double normalizedZ = z / (double)(SensorSize - 1) * 2 - 1;
+                    double nextX = (x + 1) / (double)(SensorSize - 1) * 2 - 1;
+                    double nextZ = (z + 1) / (double)(SensorSize - 1) * 2 - 1;
 
-                    triangleIndices.Add(baseIndex + 1);
-                    triangleIndices.Add(baseIndex + SensorSize);
-                    triangleIndices.Add(baseIndex + SensorSize + 1);
+                    // 현재 격자의 4개 정점에 대한 높이
+                    double h00 = smoothedHeights[x, z];
+                    double h10 = smoothedHeights[x + 1, z];
+                    double h01 = smoothedHeights[x, z + 1];
+                    double h11 = smoothedHeights[x + 1, z + 1];
+
+                    // 격자의 4개 정점 추가
+                    cellMesh.Positions.Add(new Point3D(normalizedX, h00, normalizedZ));
+                    cellMesh.Positions.Add(new Point3D(nextX, h10, normalizedZ));
+                    cellMesh.Positions.Add(new Point3D(normalizedX, h01, nextZ));
+                    cellMesh.Positions.Add(new Point3D(nextX, h11, nextZ));
+
+                    // 법선 벡터 추가
+                    for (int i = 0; i < 4; i++)
+                    {
+                        cellMesh.Normals.Add(new Vector3D(0, 1, 0));
+                    }
+
+                    // 삼각형 인덱스 추가
+                    cellMesh.TriangleIndices.Add(0);
+                    cellMesh.TriangleIndices.Add(1);
+                    cellMesh.TriangleIndices.Add(2);
+                    cellMesh.TriangleIndices.Add(1);
+                    cellMesh.TriangleIndices.Add(3);
+                    cellMesh.TriangleIndices.Add(2);
+
+                    // 격자의 평균 높이로 색상 결정
+                    double avgHeight = (h00 + h10 + h01 + h11) / 4.0;
+                    Color cellColor = GetHeatmapColor(avgHeight);
+
+                    var material = new MaterialGroup();
+                    material.Children.Add(new DiffuseMaterial(new SolidColorBrush(cellColor)));
+                    material.Children.Add(new SpecularMaterial(new SolidColorBrush(Color.FromArgb(128, 255, 255, 255)), 50));
+
+                    var cellGeometry = new GeometryModel3D(cellMesh, material);
+                    geometryGroup.Children.Add(cellGeometry);
                 }
             }
 
-            // update mesh
-            meshGeometry.Positions = positions;
-            meshGeometry.TriangleIndices = triangleIndices;
+            // 모델 업데이트
+            var modelVisual = new ModelVisual3D();
+            modelVisual.Content = geometryGroup;
 
-            // update material
-            var gradientBrush = new LinearGradientBrush();
-            gradientBrush.StartPoint = new Point(0, 0);
-            gradientBrush.EndPoint = new Point(1, 1);
-            foreach (var color in colors.Distinct())
+            // 뷰포트 업데이트
+            viewport3D.Children.Clear();
+            viewport3D.Children.Add(modelVisual);
+
+            // 조명 추가
+            var lightsVisual = new ModelVisual3D();
+            lightsVisual.Content = new Model3DGroup
             {
-                gradientBrush.GradientStops.Add(new GradientStop(color, colors.IndexOf(color) / (double)colors.Count));
-            }
-            meshMaterial.Brush = gradientBrush;
+                Children =
+        {
+            new AmbientLight(Color.FromRgb(100, 100, 100)),
+            new DirectionalLight(Colors.White, new Vector3D(-1, -1, -1)),
+            new DirectionalLight(Colors.White, new Vector3D(1, -1, 1))
+        }
+            };
+            viewport3D.Children.Add(lightsVisual);
         }
 
-        private Color GetHeightColor(double height)
+        private Color GetHeatmapColor(double value)
         {
-            // color mapping by height
-            if (height < 0.2) return Colors.Blue;
-            if (height < 0.4) return Colors.Green;
-            if (height < 0.6) return Colors.Yellow;
-            if (height < 0.8) return Colors.Orange;
-            return Colors.Red;
+            value = Math.Clamp(value, 0, 1);
+
+            if (value < 0.2)
+                return Color.FromRgb(0, 0, (byte)(255 * (value / 0.2)));
+            else if (value < 0.4)
+                return Color.FromRgb(0, (byte)(255 * ((value - 0.2) / 0.2)), 255);
+            else if (value < 0.6)
+                return Color.FromRgb((byte)(255 * ((value - 0.4) / 0.2)), 255, (byte)(255 * (1 - (value - 0.4) / 0.2)));
+            else if (value < 0.8)
+                return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.6) / 0.2)), 0);
+            else
+                return Color.FromRgb(255, 0, 0);
+        }
+
+        private void UpdateCameraPosition()
+        {
+            double angleRad = rotationAngle * Math.PI / 180.0;
+            double x = cameraDistance * Math.Sin(angleRad);
+            double y = cameraDistance * Math.Cos(angleRad);
+
+            camera.Position = new Point3D(x, y, cameraHeight);
+            camera.LookDirection = new Vector3D(-x, -y, -cameraHeight);
+            camera.UpDirection = initialUpDirection;
+        }
+        private void Viewport3D_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            double zoomFactor = e.Delta > 0 ? 0.9 : 1.1;
+            cameraDistance = Math.Max(2.0, Math.Min(10.0, cameraDistance * zoomFactor));
+            UpdateCameraPosition();
+        }
+
+        private void Viewport3D_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            viewport3D.CaptureMouse();
+            lastMousePosition = e.GetPosition(viewport3D);
+            isMouseDragging = true;
+        }
+
+        private void Viewport3D_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            viewport3D.ReleaseMouseCapture();
+            isMouseDragging = false;
+        }
+
+        private void Viewport3D_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (!isMouseDragging) return;
+
+            Point currentPosition = e.GetPosition(viewport3D);
+            double deltaX = currentPosition.X - lastMousePosition.X;
+            double deltaY = currentPosition.Y - lastMousePosition.Y;
+
+            rotationAngle += deltaX;
+            cameraHeight = Math.Max(1.0, Math.Min(8.0, cameraHeight - deltaY * 0.05));
+
+            UpdateCameraPosition();
+            lastMousePosition = currentPosition;
+        }
+
+        private void ResetView_Click(object sender, RoutedEventArgs e)
+        {
+            // 저장된 초기값으로 정확히 복원
+            camera.Position = initialPosition;
+            camera.LookDirection = initialLookDirection;
+            camera.UpDirection = initialUpDirection;
+
+            rotationAngle = 0;
+            cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
+            cameraHeight = INITIAL_POSITION_Z;
+            UpdateCameraPosition();
         }
 
         private void RotateLeft_Click(object sender, RoutedEventArgs e)
@@ -196,63 +298,45 @@ namespace PressureMapViewer
             rotationAngle += 15;
             UpdateCameraPosition();
         }
-
-        private void Viewport3D_MouseWheel(object sender, MouseWheelEventArgs e)
+        private void CalculateNormals(MeshGeometry3D mesh)
         {
-            // 줌 인/아웃 - 카메라 거리 조절
-            double zoomFactor = e.Delta > 0 ? 0.9 : 1.1;
-            cameraDistance = Math.Max(2.0, Math.Min(10.0, cameraDistance * zoomFactor));
-            UpdateCameraPosition();
-        }
+            // 법선 벡터 초기화
+            Vector3D[] normals = new Vector3D[mesh.Positions.Count];
 
-        private void Viewport3D_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            viewport3D.CaptureMouse();
-            lastMousePosition = e.GetPosition(viewport3D);
-            isMouseDragging = true;
-        }
+            // 각 삼각형에 대해 법선 벡터 계산
+            for (int i = 0; i < mesh.TriangleIndices.Count; i += 3)
+            {
+                int index1 = mesh.TriangleIndices[i];
+                int index2 = mesh.TriangleIndices[i + 1];
+                int index3 = mesh.TriangleIndices[i + 2];
 
-        private void Viewport3D_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            viewport3D.ReleaseMouseCapture();
-            isMouseDragging = false;
-        }
+                Point3D position1 = mesh.Positions[index1];
+                Point3D position2 = mesh.Positions[index2];
+                Point3D position3 = mesh.Positions[index3];
 
-        private void Viewport3D_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (!isMouseDragging) return;
+                Vector3D v1 = position2 - position1;
+                Vector3D v2 = position3 - position1;
+                Vector3D normal = Vector3D.CrossProduct(v1, v2);
 
-            Point currentPosition = e.GetPosition(viewport3D);
-            double deltaX = currentPosition.X - lastMousePosition.X;
-            double deltaY = currentPosition.Y - lastMousePosition.Y;
+                normals[index1] += normal;
+                normals[index2] += normal;
+                normals[index3] += normal;
+            }
 
-            // 회전 각도 업데이트
-            rotationAngle += deltaX;
-            cameraHeight = Math.Max(1.0, Math.Min(8.0, cameraHeight - deltaY * 0.05));
-
-            UpdateCameraPosition();
-            lastMousePosition = currentPosition;
-        }
-
-        private void UpdateCameraPosition()
-        {
-            // 구면 좌표계를 사용하여 카메라 위치 계산
-            double angleRad = rotationAngle * Math.PI / 180.0;
-            double x = cameraDistance * Math.Cos(angleRad);
-            double y = cameraDistance * Math.Sin(angleRad);
-
-            camera.Position = new Point3D(x, y, cameraHeight);
-            camera.LookDirection = new Vector3D(-x, -y, -cameraHeight);
-            camera.UpDirection = new Vector3D(0, 0, 1);
-        }
-
-        private void ResetView_Click(object sender, RoutedEventArgs e)
-        {
-            // 카메라 위치 초기화
-            rotationAngle = 0;
-            cameraDistance = 5.0;
-            cameraHeight = 4.0;
-            UpdateCameraPosition();
+            // 법선 벡터 정규화
+            for (int i = 0; i < normals.Length; i++)
+            {
+                if (normals[i].Length > 0)
+                {
+                    normals[i].Normalize();
+                    mesh.Normals.Add(normals[i]);
+                }
+                else
+                {
+                    // 법선 벡터가 0인 경우 기본값 설정
+                    mesh.Normals.Add(new Vector3D(0, 1, 0));
+                }
+            }
         }
     }
 }
