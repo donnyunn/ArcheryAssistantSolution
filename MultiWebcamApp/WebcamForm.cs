@@ -124,7 +124,7 @@ namespace MultiWebcamApp
                             var oldFrame = _frameBuffer.Dequeue();
                             oldFrame.Dispose();
                         }
-                        _frameBuffer.Enqueue(mat.Clone());
+                        _frameBuffer.Enqueue(mat.Flip(FlipMode.Y).Clone());
 
                         if (_delayPoint >= _frameBuffer.Count)
                         {
@@ -168,7 +168,7 @@ namespace MultiWebcamApp
                     {
                         // 실시간 모드: 프레임 바로 표시
                         string msg = statusMessage(_playPoint / 30.0);
-                        DisplayFrame(mat, msg);
+                        DisplayFrame(mat.Flip(FlipMode.Y), msg);
                     }
                 }
 

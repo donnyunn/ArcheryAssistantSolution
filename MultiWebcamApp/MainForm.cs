@@ -225,9 +225,9 @@ namespace MultiWebcamApp
                 var monitor0 = screens[0];
                 _footpadForm.StartPosition = FormStartPosition.Manual;
                 _footpadForm.Location = monitor0.WorkingArea.Location;
-                _footpadForm.Size = monitor0.WorkingArea.Size;
-                _footpadForm.FormBorderStyle = FormBorderStyle.None;
-                _footpadForm.WindowState = FormWindowState.Maximized;
+                //_footpadForm.Size = monitor0.WorkingArea.Size;
+                //_footpadForm.FormBorderStyle = FormBorderStyle.None;
+                _footpadForm.WindowState = FormWindowState.Minimized;
             }
 
             this.Location = new Point(0, 720);

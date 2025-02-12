@@ -63,7 +63,6 @@ namespace MultiWebcamApp
         private void FootpadForm_Load(object sender, EventArgs e)
         {
             pressureMapWindow = new PressureMapViewer.MainWindow();
-            pressureMapWindow.Show();
 
             Screen currentScreen = Screen.FromControl(this);
             Rectangle screenBounds = currentScreen.Bounds;
@@ -75,7 +74,8 @@ namespace MultiWebcamApp
             pressureMapWindow.Top = screenBounds.Top;
             pressureMapWindow.Width = screenBounds.Width;
             pressureMapWindow.Height = screenBounds.Height;
-            //pressureMapWindow.WindowState = System.Windows.WindowState.Maximized;
+            
+            pressureMapWindow.Show();
         }
 
         private void InitializeDevices()
@@ -93,35 +93,6 @@ namespace MultiWebcamApp
                 if (device.Port.IsOpen)
                 {
                     device.Port.DataReceived += (s, e) => SerialPort_DataReceived(device, e);
-                }
-            }
-        }
-
-        private void CheckForNewDevices()
-        {
-            var currentPorts = SerialPort.GetPortNames()
-                .Where(p => p != "COM1")
-                .OrderBy(p => p)
-                .ToList();
-
-            // 현재 연결된 포트들 중에서 아직 등록되지 않은 포트 확인
-            for (int i = 0; i < Math.Min(4, currentPorts.Count); i++)
-            {
-                if (!devices.ContainsKey(i) || !devices[i].Port.IsOpen)
-                {
-                    // 기존 장치가 있다면 정리
-                    if (devices.ContainsKey(i))
-                    {
-                        devices[i].Close();
-                    }
-
-                    // 새 장치 초기화
-                    var device = new FootpadDevice(currentPorts[i], i);
-                    devices[i] = device;
-                    if (device.Port.IsOpen)
-                    {
-                        device.Port.DataReceived += (s, e) => SerialPort_DataReceived(device, e);
-                    }
                 }
             }
         }
@@ -261,22 +232,6 @@ namespace MultiWebcamApp
             {
                 pressureMapWindow.UpdatePressureData(combinedData);
             });
-        }
-
-        private void DisplaySensorData(ushort[] sensorData)
-        {
-            //for (int i = 0; i < sensorData.Length; i++)
-            //{
-            //    Console.Write(sensorData[i]);
-            //}
-            //Console.WriteLine();
-            //if (pressureMapWindow != null && pressureMapWindow.IsLoaded) 
-            {
-                pressureMapWindow.Dispatcher.Invoke(() =>
-                {
-                    pressureMapWindow.UpdatePressureData(sensorData);
-                });
-            }
         }
 
         private byte[] CombineArrays(byte[] first, byte[] second)
