@@ -201,28 +201,30 @@ namespace MultiWebcamApp
             var screens = Screen.AllScreens;
             if (screens.Length > 3)
             {
-                var monitor1 = screens[2];
+                var orderedScreens = screens.OrderBy(s => s.Bounds.Y).ToList();
+
+                var monitor1 = orderedScreens[0];
                 _webcamFormHead.StartPosition = FormStartPosition.Manual;
                 _webcamFormHead.Location = monitor1.WorkingArea.Location;
                 _webcamFormHead.Size = monitor1.WorkingArea.Size;
                 _webcamFormHead.FormBorderStyle = FormBorderStyle.None;
                 _webcamFormHead.WindowState = FormWindowState.Maximized;
 
-                var monitor2 = screens[1];
+                var monitor2 = orderedScreens[1];
                 this.StartPosition = FormStartPosition.Manual;
                 this.Location = monitor2.WorkingArea.Location; 
                 this.Size = monitor2.WorkingArea.Size;
                 this.FormBorderStyle = FormBorderStyle.None;
                 this.WindowState = FormWindowState.Maximized; 
 
-                var monitor3 = screens[3];
+                var monitor3 = orderedScreens[2];
                 _webcamFormBody.StartPosition = FormStartPosition.Manual;
                 _webcamFormBody.Location = monitor3.WorkingArea.Location;
                 _webcamFormBody.Size = monitor3.WorkingArea.Size;
                 _webcamFormBody.FormBorderStyle = FormBorderStyle.None;
                 _webcamFormBody.WindowState = FormWindowState.Maximized;
 
-                var monitor0 = screens[0];
+                var monitor0 = orderedScreens[3];
                 _footpadForm.StartPosition = FormStartPosition.Manual;
                 _footpadForm.Location = monitor0.WorkingArea.Location;
                 //_footpadForm.Size = monitor0.WorkingArea.Size;
