@@ -3,8 +3,11 @@ using System.Drawing.Printing;
 using System.Text;
 using System.Windows.Forms;
 using System.Threading;
+using System.Threading.Tasks;
 using FontAwesome.Sharp;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace MultiWebcamApp
 {
@@ -22,6 +25,8 @@ namespace MultiWebcamApp
         private System.Windows.Forms.Timer _forwardTimer;
         private System.Windows.Forms.Timer _backwardInitialTimer;
         private System.Windows.Forms.Timer _forwardInitialTimer;
+
+        private CancellationTokenSource? _cancellationTokenSource;
 
         public MainForm()
         {
@@ -196,7 +201,40 @@ namespace MultiWebcamApp
             _forwardTimer.Start();
         }
 
-        private void MainForm_Load(object sender, EventArgs e)
+        private async void InitializeProcess()
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            await Task.Run(() => Process(_cancellationTokenSource.Token));
+        }
+
+        private async void Process(CancellationToken token)
+        {
+            Task.Delay(1000).Wait();
+
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+            while (!token.IsCancellationRequested)
+            {
+                mainProcess();
+
+                // 경과 시간 계산 후 대기 시간 조정
+                var elapsed = stopwatch.ElapsedMilliseconds;
+                stopwatch.Restart();
+                var delay = Math.Max(0, (int)(1000 / 60.0) - (int)elapsed);
+
+                await Task.Delay(delay); // 직접 대기
+            }
+        }
+
+        private async void mainProcess()
+        {
+            var taskHead = Task.Run(() => _webcamFormHead.work());
+            var taskBody = Task.Run(() => _webcamFormBody.work());
+
+            await Task.WhenAll(taskHead, taskBody);
+        }
+
+        private async void MainForm_Load(object sender, EventArgs e)
         {
             var screens = Screen.AllScreens;
             if (screens.Length > 3)
@@ -239,14 +277,16 @@ namespace MultiWebcamApp
             _webcamFormBody.Show();
 
             _footpadForm.Show();
+
+            InitializeProcess();
         }
 
         private void DelaySlider_ValueChanged(object sender, EventArgs e)
         {
             _delaySeconds = ((CustomTrackBar)sender).Value;
             _delayTextbox.Text = _delaySeconds.ToString();
-            _webcamFormHead.SetDelay(_delaySeconds);
-            _webcamFormBody.SetDelay(_delaySeconds);
+            //_webcamFormHead.SetDelay(_delaySeconds);
+            //_webcamFormBody.SetDelay(_delaySeconds);
         }
 
         private void StartButton_Click(object sender, EventArgs e)
@@ -263,8 +303,8 @@ namespace MultiWebcamApp
                 _isPaused = true;
             }
             UpdatePlayPauseButton();
-            _webcamFormHead.SetKey("r");
-            _webcamFormBody.SetKey("r");
+            //_webcamFormHead.SetKey("r");
+            //_webcamFormBody.SetKey("r");
         }
 
         private void BackwardButton_Click(Object sender, EventArgs e)
@@ -273,8 +313,8 @@ namespace MultiWebcamApp
             {
                 _isPaused = true;
                 UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("a");
-                _webcamFormBody.SetKey("a");
+                //_webcamFormHead.SetKey("a");
+                //_webcamFormBody.SetKey("a");
             }
         }
 
@@ -284,8 +324,8 @@ namespace MultiWebcamApp
             {
                 _isPaused = !_isPaused;
                 UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("p");
-                _webcamFormBody.SetKey("p");
+                //_webcamFormHead.SetKey("p");
+                //_webcamFormBody.SetKey("p");
             }
         }
 
@@ -295,8 +335,8 @@ namespace MultiWebcamApp
             {
                 _isPaused = true;
                 UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("d");
-                _webcamFormBody.SetKey("d");
+                //_webcamFormHead.SetKey("d");
+                //_webcamFormBody.SetKey("d");
             }
         }
 
@@ -306,8 +346,8 @@ namespace MultiWebcamApp
             {
                 _isSlowMode = !_isSlowMode;
                 _slowButton.BackColor = _isSlowMode ? Color.DarkGray : Color.LightGray;
-                _webcamFormHead.SetKey("s");
-                _webcamFormBody.SetKey("s");
+                //_webcamFormHead.SetKey("s");
+                //_webcamFormBody.SetKey("s");
             }
         }
 
@@ -318,6 +358,8 @@ namespace MultiWebcamApp
 
         private void CloseButton_Click(object sender, EventArgs e)
         {
+            _cancellationTokenSource?.Cancel();
+            Task.Delay(1000);
             _webcamFormHead.Close();
             _webcamFormBody.Close();
             this.Close();

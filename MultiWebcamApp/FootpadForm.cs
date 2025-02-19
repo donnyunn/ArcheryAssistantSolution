@@ -102,7 +102,7 @@ namespace MultiWebcamApp
             timer = new System.Windows.Forms.Timer();
             timer.Interval = DataRequestInterval;
             timer.Tick += new EventHandler(Timer_Tick);
-            timer.Start();
+            //timer.Start();
         }
 
         private void Timer_Tick(object sender, EventArgs e)
