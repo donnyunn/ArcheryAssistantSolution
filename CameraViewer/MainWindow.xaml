@@ -7,5 +7,21 @@
         <Image x:Name="DisplayImage"
                Stretch="Uniform"
                RenderOptions.BitmapScalingMode="HighQuality"/>
+
+        <TextBlock x:Name="StatusText"
+                   VerticalAlignment="Bottom"
+                   HorizontalAlignment="Left"
+                   Margin="10"
+                   FontSize="24"
+                   FontFamily="Arial"
+                   Foreground="White"/>
+
+        <TextBlock x:Name="StatusText2"
+                   VerticalAlignment="Top"
+                   HorizontalAlignment="Left"
+                   Margin="10"
+                   FontSize="24"
+                   FontFamily="Arial"
+                   Foreground="Red"/>
     </Grid>
 </Window>
