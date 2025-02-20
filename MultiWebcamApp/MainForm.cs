@@ -270,7 +270,7 @@ namespace MultiWebcamApp
                 _webcamFormHead.Location = monitor1.WorkingArea.Location;
                 _webcamFormHead.Size = monitor1.WorkingArea.Size;
                 _webcamFormHead.FormBorderStyle = FormBorderStyle.None;
-                _webcamFormHead.WindowState = FormWindowState.Maximized;
+                _webcamFormHead.WindowState = FormWindowState.Minimized;
 
                 var monitor2 = orderedScreens[1];
                 this.StartPosition = FormStartPosition.Manual;
@@ -284,7 +284,7 @@ namespace MultiWebcamApp
                 _webcamFormBody.Location = monitor3.WorkingArea.Location;
                 _webcamFormBody.Size = monitor3.WorkingArea.Size;
                 _webcamFormBody.FormBorderStyle = FormBorderStyle.None;
-                _webcamFormBody.WindowState = FormWindowState.Maximized;
+                _webcamFormBody.WindowState = FormWindowState.Minimized;
 
                 var monitor0 = orderedScreens[3];
                 _footpadForm.StartPosition = FormStartPosition.Manual;
