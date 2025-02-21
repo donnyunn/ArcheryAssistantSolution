@@ -11,7 +11,7 @@ namespace PressureMapViewer
     public partial class MainWindow : Window
     {
         private const int SENSOR_SIZE = 96;
-        private const int FPS_2D = 60;
+        private const int FPS_2D = 30;
         private const int FPS_3D = 30;
 
         // 2D 렌더링 관련
@@ -26,9 +26,9 @@ namespace PressureMapViewer
         private DateTime last3DUpdate = DateTime.MinValue;
         
         // 카메라 관련
-        private const double INITIAL_POSITION_Y = 3.0;
-        private const double INITIAL_POSITION_Z = 3.0;
-        private double rotationAngle = 0;
+        private const double INITIAL_POSITION_Y = 2.0;
+        private const double INITIAL_POSITION_Z = 2.0;
+        private double rotationAngle = 45;
         private double cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
         private double cameraHeight = INITIAL_POSITION_Z;
         private Point3D initialPosition;
@@ -91,18 +91,25 @@ namespace PressureMapViewer
                 UpDirection = initialUpDirection
             };
             viewport3D.Camera = camera;
+
+            UpdateCameraPosition();
         }
 
         private void InitializeMeshGrid()
         {
+            // 데이터 메시 초기화
+            meshGrid = new GeometryModel3D[SENSOR_SIZE - 1, SENSOR_SIZE - 1];
             for (int z = 0; z < SENSOR_SIZE - 1; z++)
             {
                 for (int x = 0; x < SENSOR_SIZE - 1; x++)
                 {
                     var mesh = new MeshGeometry3D();
                     var material = new DiffuseMaterial(new SolidColorBrush(Colors.Blue));
+                    var model = new GeometryModel3D(mesh, material)
+                    {
+                        BackMaterial = material
+                    };
 
-                    // 메시의 삼각형 인덱스는 변하지 않음
                     mesh.TriangleIndices.Add(0);
                     mesh.TriangleIndices.Add(1);
                     mesh.TriangleIndices.Add(2);
@@ -110,8 +117,8 @@ namespace PressureMapViewer
                     mesh.TriangleIndices.Add(3);
                     mesh.TriangleIndices.Add(2);
 
-                    meshGrid[z, x] = new GeometryModel3D(mesh, material);
-                    meshGroup.Children.Add(meshGrid[z, x]);
+                    meshGrid[z, x] = model;
+                    meshGroup.Children.Add(model);
                 }
             }
         }
@@ -172,13 +179,13 @@ namespace PressureMapViewer
 
         private void Update3D(ushort[] data)
         {
-            float maxValue = 0;
-            for (int i = 0; i < data.Length; i++)
-            {
-                maxValue = Math.Max(maxValue, data[i]);
-            }
-            maxValue = Math.Max(255, maxValue);
-            float scale = 1.0f / maxValue;
+            //float maxValue = 0;
+            //for (int i = 0; i < data.Length; i++)
+            //{
+            //    maxValue = Math.Max(maxValue, data[i]);
+            //}
+            //float scale = 1.0f / maxValue;
+            float scale = 1.0f / 1024;
 
             for (int z = 0; z < SENSOR_SIZE - 1; z++)
             {
