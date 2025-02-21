@@ -229,10 +229,10 @@ namespace MultiWebcamApp
 
                     _ = Task.WhenAll(
                         Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                        Task.Run(() => _webcamFormBody.work(frameStartTime))
+                        Task.Run(() => _webcamFormBody.work(frameStartTime)),
+                        Task.Run(() => _footpadForm.UpdateFrame())
                     );
 
-                    //await mainProcess();
                     frameCount++;
 
                     if (frameStartTime - lastFpsCheck >= 1000)
