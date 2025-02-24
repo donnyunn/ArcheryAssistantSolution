@@ -35,10 +35,23 @@ namespace PressureMapViewer
         private Vector3D initialLookDirection;
         private Vector3D initialUpDirection;
 
+        // 미리 계산된 색상 팔레트 (예: 1024개의 색상)
+        private Color[] heatmapPalette = new Color[1024];
+
         public MainWindow()
         {
             InitializeComponent();
             InitializeRendering();
+            InitializeHeatmapPalette();
+        }
+
+        private void InitializeHeatmapPalette()
+        {
+            for (int i = 0; i < heatmapPalette.Length; i++)
+            {
+                float value = (float)i / (heatmapPalette.Length - 1);
+                heatmapPalette[i] = GetHeatmapColor(value);
+            }
         }
 
         private void InitializeRendering()
@@ -141,13 +154,13 @@ namespace PressureMapViewer
             if ((now - last3DUpdate).TotalMilliseconds > 1000.0 / FPS_3D)
             {
                 // 데이터 복사
-                var dataCopy = new ushort[data.Length];
-                Array.Copy(data, dataCopy, data.Length);
+                //var dataCopy = new ushort[data.Length];
+                //Array.Copy(data, dataCopy, data.Length);
 
                 // UI 스레드에서 실행
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    Update3D(dataCopy);
+                    Update3D(data);
                 }), System.Windows.Threading.DispatcherPriority.Render);
 
                 last3DUpdate = now;
@@ -162,7 +175,10 @@ namespace PressureMapViewer
                 Parallel.For(0, data.Length, i =>
                 {
                     float normalizedValue = data[i] / 1024.0f;
-                    Color color = GetHeatmapColor(normalizedValue);
+                    // 룩업 테이블에서 색상 가져오기
+                    int index = (int)(normalizedValue * (heatmapPalette.Length - 1));
+                    //Color color = GetHeatmapColor(normalizedValue);
+                    Color color = heatmapPalette[index];
                     colorBuffer[i] = (color.R << 16) | (color.G << 8) | color.B;
                 });
 

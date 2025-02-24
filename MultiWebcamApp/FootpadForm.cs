@@ -225,10 +225,23 @@ namespace MultiWebcamApp
         private int frameCount = 0;
         private DateTime lastFpsCheck = DateTime.Now;
 
+        private System.Windows.Forms.Timer _renderTimer;
+
         public FootpadForm()
         {
             InitializeComponent();
             InitializeDevices();
+
+            _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _renderTimer.Tick += (s, e) => renderTick(s, e);
+        }
+
+        private void renderTick(Object sender, EventArgs e)
+        {
+            if (isRunning)
+            {
+                isRunning = false;
+            }
         }
 
         private void InitializeDevices()
@@ -268,6 +281,7 @@ namespace MultiWebcamApp
         {
             bool ret = false;
             if (isRunning) return ret;
+            _renderTimer.Start();
             isRunning = true;
 
             try
@@ -329,6 +343,7 @@ namespace MultiWebcamApp
             finally
             {
                 isRunning = false;
+                _renderTimer.Stop();
             }
 
             return ret;
