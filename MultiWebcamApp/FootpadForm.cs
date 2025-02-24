@@ -234,6 +234,7 @@ namespace MultiWebcamApp
 
             _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _renderTimer.Tick += (s, e) => renderTick(s, e);
+            _renderTimer.Start();
         }
 
         private void renderTick(Object sender, EventArgs e)

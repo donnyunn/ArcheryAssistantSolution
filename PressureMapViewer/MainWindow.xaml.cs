@@ -5,6 +5,9 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Reflection;
+using System.Windows.Shapes;
+using System.Windows.Controls;
 
 namespace PressureMapViewer
 {
@@ -38,11 +41,29 @@ namespace PressureMapViewer
         // 미리 계산된 색상 팔레트 (예: 1024개의 색상)
         private Color[] heatmapPalette = new Color[1024];
 
+        // 무게중심 관련
+        private Point centerOfPressure;
+        private Ellipse copIndicator;
+        private Queue<Point> copHistory = new Queue<Point>();
+        private Polyline copTrajectory = new Polyline();
+        private const int MAX_TRAJECTORY_POINTS = 100;  // 궤적 표시 최대 포인트 수
+        private const double TRAJECTORY_OPACITY = 0.6;  // 궤적 선 투명도
+
+        // 격자 관련
+        private ModelVisual3D gridVisual;
+        private const double GRID_SPACING = 0.2; // 격자 간격
+
         public MainWindow()
         {
             InitializeComponent();
             InitializeRendering();
             InitializeHeatmapPalette();
+
+            // 무게중심 표시기 초기화
+            InitializeCOPIndicator();
+
+            // 3D 격자 초기화
+            InitializeGrid();
         }
 
         private void InitializeHeatmapPalette()
@@ -52,6 +73,89 @@ namespace PressureMapViewer
                 float value = (float)i / (heatmapPalette.Length - 1);
                 heatmapPalette[i] = GetHeatmapColor(value);
             }
+        }
+
+        private void InitializeCOPIndicator()
+        {
+            copIndicator = new Ellipse
+            {
+                Width = 10,
+                Height = 10,
+                Fill = Brushes.White,
+                Stroke = Brushes.Wheat,
+                StrokeThickness = 2
+            };
+
+            Canvas copCanvas = new Canvas();
+            Grid.SetColumn(copCanvas, 0);
+            ((Grid)Content).Children.Add(copCanvas);
+
+            // 궤적을 먼저 추가하고 그 위에 현재 포인트 표시
+            copCanvas.Children.Add(copTrajectory);
+            copCanvas.Children.Add(copIndicator);
+
+            // 캔버스를 이미지와 동일한 크기로 설정
+            copCanvas.Width = HeatmapImage.ActualWidth;
+            copCanvas.Height = HeatmapImage.ActualHeight;
+
+            // 이미지 크기 변경 이벤트 처리
+            HeatmapImage.SizeChanged += (s, e) =>
+            {
+                copCanvas.Width = HeatmapImage.ActualWidth;
+                copCanvas.Height = HeatmapImage.ActualHeight;
+
+                // 궤적 포인트들의 위치 재계산
+                if (copHistory.Count > 0)
+                {
+                    double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
+                    double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+
+                    var newPoints = new PointCollection();
+                    foreach (var point in copHistory)
+                    {
+                        double newX = (point.X / copCanvas.Width) * HeatmapImage.ActualWidth;
+                        double newY = (point.Y / copCanvas.Height) * HeatmapImage.ActualHeight;
+                        newPoints.Add(new Point(newX, newY));
+                    }
+                    copTrajectory.Points = newPoints;
+                }
+            };
+        }
+
+        private void InitializeGrid()
+        {
+            gridVisual = new ModelVisual3D();
+            meshGroup.Children.Add(new GeometryModel3D());
+        }
+
+        private GeometryModel3D CreateGridLine(Point3D start, Point3D end)
+        {
+            var mesh = new MeshGeometry3D();
+            const double thickness = 0.002;
+
+            // 선을 표현하는 얇은 사각형 생성
+            Vector3D direction = end - start;
+            Vector3D perpendicular = Vector3D.CrossProduct(direction, new Vector3D(0, 1, 0));
+            perpendicular.Normalize();
+            perpendicular *= thickness;
+
+            mesh.Positions.Add(start - perpendicular);
+            mesh.Positions.Add(start + perpendicular);
+            mesh.Positions.Add(end - perpendicular);
+            mesh.Positions.Add(end + perpendicular);
+
+            mesh.TriangleIndices.Add(0);
+            mesh.TriangleIndices.Add(1);
+            mesh.TriangleIndices.Add(2);
+            mesh.TriangleIndices.Add(1);
+            mesh.TriangleIndices.Add(3);
+            mesh.TriangleIndices.Add(2);
+
+            return new GeometryModel3D
+            {
+                Geometry = mesh,
+                Material = new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(128, 128, 128, 128)))
+            };
         }
 
         private void InitializeRendering()
@@ -136,12 +240,169 @@ namespace PressureMapViewer
             }
         }
 
+        private void UpdateGrid(ushort[] data)
+        {
+            var gridGeometry = new Model3DGroup();
+            float scale = 1.0f / 1024;
+
+            // 가로선
+            for (double z = 0; z < SENSOR_SIZE - 1; z += GRID_SPACING * (SENSOR_SIZE - 1))
+            {
+                for (double x = 0; x < SENSOR_SIZE - 1; x += 0.5)
+                {
+                    float h1 = data[(int)z * SENSOR_SIZE + (int)x] * scale;
+                    float h2 = data[(int)z * SENSOR_SIZE + (int)(x + 0.5)] * scale;
+
+                    var p1 = new Point3D(
+                        x / (SENSOR_SIZE - 1) * 2 - 1,
+                        h1,
+                        z / (SENSOR_SIZE - 1) * 2 - 1
+                    );
+                    var p2 = new Point3D(
+                        (x + 0.5) / (SENSOR_SIZE - 1) * 2 - 1,
+                        h2,
+                        z / (SENSOR_SIZE - 1) * 2 - 1
+                    );
+
+                    var line = CreateGridLine(p1, p2);
+                    gridGeometry.Children.Add(line);
+                }
+            }
+
+            // 세로선
+            for (double x = 0; x < SENSOR_SIZE - 1; x += GRID_SPACING * (SENSOR_SIZE - 1))
+            {
+                for (double z = 0; z < SENSOR_SIZE - 1; z += 0.5)
+                {
+                    float h1 = data[(int)z * SENSOR_SIZE + (int)x] * scale;
+                    float h2 = data[(int)(z + 0.5) * SENSOR_SIZE + (int)x] * scale;
+
+                    var p1 = new Point3D(
+                        x / (SENSOR_SIZE - 1) * 2 - 1,
+                        h1,
+                        z / (SENSOR_SIZE - 1) * 2 - 1
+                    );
+                    var p2 = new Point3D(
+                        x / (SENSOR_SIZE - 1) * 2 - 1,
+                        h2,
+                        (z + 0.5) / (SENSOR_SIZE - 1) * 2 - 1
+                    );
+
+                    var line = CreateGridLine(p1, p2);
+                    gridGeometry.Children.Add(line);
+                }
+            }
+
+            // UI 스레드에서 업데이트
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (gridVisual.Content != null)
+                {
+                    meshGroup.Children.Remove((Model3D)gridVisual.Content);
+                }
+                gridVisual.Content = gridGeometry;
+                meshGroup.Children.Add(gridGeometry);
+            }));
+        }
+
+        private void UpdateCenterOfPressure(ushort[] data)
+        {
+            double totalPressure = 0;
+            double weightedX = 0;
+            double weightedY = 0;
+
+            for (int y = 0; y < SENSOR_SIZE; y++)
+            {
+                for (int x = 0; x < SENSOR_SIZE; x++)
+                {
+                    double pressure = data[y * SENSOR_SIZE + x];
+                    totalPressure += pressure;
+                    weightedX += x * pressure;
+                    weightedY += y * pressure;
+                }
+            }
+
+            if (totalPressure > 0)
+            {
+                centerOfPressure = new Point(
+                    weightedX / totalPressure,
+                    weightedY / totalPressure
+                );
+
+                // UI 업데이트
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    //double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
+                    //double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+
+                    //Canvas.SetLeft(copIndicator, centerOfPressure.X * scaleX - copIndicator.Width / 2);
+                    //Canvas.SetTop(copIndicator, centerOfPressure.Y * scaleY - copIndicator.Height / 2);
+
+                    double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
+                    double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+
+                    // 현재 포인트의 화면 좌표 계산
+                    double screenX = centerOfPressure.X * scaleX;
+                    double screenY = centerOfPressure.Y * scaleY;
+
+                    // 현재 포인트 위치 업데이트
+                    Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
+                    Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
+
+                    // 현재 압력이 임계값을 넘을 때만 궤적에 추가
+                    if (totalPressure > 4608) // 임계값은 적절히 조정 필요
+                    {
+                        // 궤적 히스토리 업데이트
+                        copHistory.Enqueue(new Point(screenX, screenY));
+                        while (copHistory.Count > MAX_TRAJECTORY_POINTS)
+                        {
+                            copHistory.Dequeue();
+                        }
+
+                        // 궤적 라인 업데이트
+                        var points = new PointCollection(copHistory);
+                        copTrajectory.Points = points;
+
+                        // 궤적 색상 그라데이션 업데이트
+                        if (copHistory.Count > 1)
+                        {
+                            var gradientStops = new GradientStopCollection();
+                            for (int i = 0; i < copHistory.Count; i++)
+                            {
+                                // 최근 포인트일수록 더 선명하게
+                                double opacity = (double)i / copHistory.Count * TRAJECTORY_OPACITY;
+                                gradientStops.Add(new GradientStop(
+                                    Color.FromArgb(
+                                        (byte)(255 * opacity),
+                                        255, // Red
+                                        255, // Green
+                                        0   // Blue - Yellow color
+                                    ),
+                                    (double)i / (copHistory.Count - 1)
+                                ));
+                            }
+
+                            copTrajectory.Stroke = new LinearGradientBrush
+                            {
+                                GradientStops = gradientStops,
+                                StartPoint = new Point(0, 0),
+                                EndPoint = new Point(1, 0)
+                            };
+                        }
+                    }
+                }));
+            }
+        }
+
         public void UpdatePressureData(ushort[] data)
         {
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
                 return;
 
             var now = DateTime.Now;
+
+            // 무게중심 업데이트
+            UpdateCenterOfPressure(data);
 
             // 2D 업데이트 (60fps)
             if ((now - last2DUpdate).TotalMilliseconds > 1000.0 / FPS_2D)
@@ -165,6 +426,7 @@ namespace PressureMapViewer
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     Update3D(data);
+                    UpdateGrid(data);
                 }), System.Windows.Threading.DispatcherPriority.Render);
 
                 last3DUpdate = now;
@@ -242,7 +504,9 @@ namespace PressureMapViewer
 
             // 색상 업데이트
             float avgHeight = (h00 + h10 + h01 + h11) / 4.0f;
-            Color color = avgHeight <= 0 ? Colors.Black : GetHeatmapColor(avgHeight);
+            //Color color = avgHeight <= 0 ? Colors.Black : GetHeatmapColor(avgHeight);
+            int index = (int)(avgHeight * (heatmapPalette.Length - 1));
+            Color color = avgHeight <= 0 ? Colors.Black : heatmapPalette[index];
             material.Brush = new SolidColorBrush(color);
         }
 

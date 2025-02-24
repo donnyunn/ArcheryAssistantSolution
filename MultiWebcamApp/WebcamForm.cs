@@ -79,16 +79,17 @@ namespace MultiWebcamApp
                 return;
             }
 
-            _capture.Set(VideoCaptureProperties.FrameWidth, 1366);
-            _capture.Set(VideoCaptureProperties.FrameHeight, 768);
+            _capture.Set(VideoCaptureProperties.FrameWidth, 960);
+            _capture.Set(VideoCaptureProperties.FrameHeight, 540);
             _capture.Set(VideoCaptureProperties.Fps, 60.0f);
 
             actualFps = _capture.Get(VideoCaptureProperties.Fps);
             Console.WriteLine($"{actualFps}");
-            //for (int i = 0; i < 5; i++) // 5 프레임 버리기
-            //{
-            //    _capture.Read(new Mat());
-            //}
+
+            for (int i = 0; i < 5; i++) // 5 프레임 버리기
+            {
+                _capture.Read(new Mat());
+            }
         }
 
         public void work(long timestamp)
