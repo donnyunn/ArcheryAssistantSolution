@@ -146,7 +146,11 @@ namespace PressureMapViewer
             // 2D 업데이트 (60fps)
             if ((now - last2DUpdate).TotalMilliseconds > 1000.0 / FPS_2D)
             {
-                Update2D(data);
+                //Update2D(data);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    Update2D(data);
+                }), System.Windows.Threading.DispatcherPriority.Render);
                 last2DUpdate = now;
             }
 
