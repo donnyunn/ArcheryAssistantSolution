@@ -13,9 +13,9 @@ namespace MultiWebcamApp
 {
     public partial class MainForm : Form
     {
-        private WebcamForm _webcamFormHead = new WebcamForm(0);
-        private WebcamForm _webcamFormBody = new WebcamForm(1);
-        private FootpadForm _footpadForm = new FootpadForm();
+        private WebcamForm _webcamFormHead;// = new WebcamForm(0);
+        private WebcamForm _webcamFormBody;// = new WebcamForm(1);
+        private FootpadForm _footpadForm;// = new FootpadForm();
         private int _delaySeconds = 0; 
         private bool _isStarted = false;
         private bool _isPaused = false;
@@ -219,7 +219,7 @@ namespace MultiWebcamApp
             long frameCount = 0;
             long lastFpsCheck = 0;
 
-            Task.Delay(1000).Wait();
+            Task.Delay(1500).Wait();
 
             while (!token.IsCancellationRequested)
             {
@@ -237,7 +237,7 @@ namespace MultiWebcamApp
 
                     if (frameStartTime - lastFpsCheck >= 1000)
                     {
-                        Console.WriteLine($"Current FPS: {frameCount}");
+                        Console.WriteLine($"Camera FPS: {frameCount}");
                         frameCount = 0;
                         lastFpsCheck = frameStartTime;
                     }
@@ -260,6 +260,10 @@ namespace MultiWebcamApp
 
         private async void MainForm_Load(object sender, EventArgs e)
         {
+            _webcamFormHead = new WebcamForm(0);
+            _webcamFormBody = new WebcamForm(1);
+            _footpadForm = new FootpadForm();
+
             var screens = Screen.AllScreens;
             if (screens.Length > 3)
             {

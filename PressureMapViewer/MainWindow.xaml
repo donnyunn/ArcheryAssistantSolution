@@ -2,7 +2,11 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="MainWindow" Height="1080" Width="1920"
-        Background="#1F1F1F">
+        Background="#1F1F1F"
+        RenderOptions.BitmapScalingMode="Fant"
+        RenderOptions.EdgeMode="Aliased"
+        RenderOptions.ClearTypeHint="Enabled"
+        UseLayoutRounding="True">
 
     <Grid>
         <Grid.ColumnDefinitions>

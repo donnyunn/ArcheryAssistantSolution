@@ -31,6 +31,7 @@ namespace MultiWebcamApp
                 {
                     ReadTimeout = 1000,
                     WriteTimeout = 1000,
+                    ReadBufferSize = 16384,
                 };
                 Port.Open();
             }
@@ -49,43 +50,47 @@ namespace MultiWebcamApp
             try
             {
                 // Clear buffers
-                Port.DiscardInBuffer();
-                Port.DiscardOutBuffer();
+                if (Port.BytesToRead > 0)
+                {
+                    Port.DiscardInBuffer();
+                    Port.DiscardOutBuffer();
+                }
 
                 // Send request
                 Port.Write(RequestPacket, 0, RequestPacket.Length);
 
-                // Read response
-                byte[] buffer = new byte[4622]; // 48*48*2 + overhead
+                // 예상되는 전체 응답 크기
+                const int EXPECTED_SIZE = 4622;  // 48*48*2 + overhead
+                byte[] buffer = new byte[EXPECTED_SIZE];
                 int totalBytesRead = 0;
-                DateTime startTime = DateTime.Now;
 
-                while ((DateTime.Now - startTime).TotalMilliseconds < 1000)
+                // 타임아웃 설정
+                var startTime = DateTime.Now;
+                const int TIMEOUT_MS = 100;  // 1000ms에서 100ms로 감소
+
+                while (totalBytesRead < EXPECTED_SIZE)
                 {
-                    try
+                    // 타임아웃 체크
+                    if ((DateTime.Now - startTime).TotalMilliseconds > TIMEOUT_MS)
                     {
-                        if (Port.BytesToRead == 0)
-                        {
-                            System.Threading.Thread.Sleep(1);
-                            continue;
-                        }
-
-                        int bytesRead = Port.Read(buffer, totalBytesRead,
-                            Math.Min(Port.BytesToRead, buffer.Length - totalBytesRead));
-
-                        if (bytesRead == 0) continue;
-
-                        totalBytesRead += bytesRead;
-
-                        // Try to process the data
-                        if (ProcessBuffer(buffer, totalBytesRead))
-                        {
-                            return true;
-                        }
+                        return false;
                     }
-                    catch (TimeoutException)
+
+                    int bytesToRead = Port.BytesToRead;
+                    if (bytesToRead == 0) continue;  // Thread.Sleep 제거
+
+                    // 가능한 한 큰 청크로 읽기
+                    int maxRead = Math.Min(bytesToRead, EXPECTED_SIZE - totalBytesRead);
+                    int bytesRead = Port.Read(buffer, totalBytesRead, maxRead);
+
+                    if (bytesRead == 0) continue;
+
+                    totalBytesRead += bytesRead;
+
+                    // 충분한 데이터가 모였으면 처리 시도
+                    if (totalBytesRead >= EXPECTED_SIZE)
                     {
-                        System.Threading.Thread.Sleep(1);
+                        return ProcessBuffer(buffer, totalBytesRead);
                     }
                 }
             }
@@ -237,7 +242,7 @@ namespace MultiWebcamApp
             _renderTimer.Start();
         }
 
-        private void renderTick(Object sender, EventArgs e)
+        private void renderTick(Object? sender, EventArgs e)
         {
             if (isRunning)
             {
@@ -344,7 +349,7 @@ namespace MultiWebcamApp
             finally
             {
                 isRunning = false;
-                _renderTimer.Stop();
+                //_renderTimer.Stop();
             }
 
             return ret;
