@@ -31,9 +31,9 @@ namespace PressureMapViewer
         private GeometryModel3D[,] meshGrid;
         
         // 카메라 관련
-        private const double INITIAL_POSITION_Y = 2.0;
-        private const double INITIAL_POSITION_Z = 2.0;
-        private double rotationAngle = 45;
+        private const double INITIAL_POSITION_Y = 2.5;
+        private const double INITIAL_POSITION_Z = 2.5;
+        private double rotationAngle = 0;
         private double cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
         private double cameraHeight = INITIAL_POSITION_Z;
         private Point3D initialPosition;
@@ -62,8 +62,24 @@ namespace PressureMapViewer
         private const int THROTTLE_INTERVAL_MS = 33; // 약 30fps로 제한
 
         // 밸런스 게이지 관련
-        private const double WEIGHT_THRESHOLD = 100.0; // 유효 압력 임계값
+        private const double WEIGHT_THRESHOLD = 16.0; // 유효 압력 임계값
         private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
+
+        // 시계열 그래프 관련
+        private const int MAX_CHART_POINTS = 200; // 최대 그래프 포인트 수
+        private const double CHART_UPDATE_INTERVAL_MS = 100; // 그래프 업데이트 간격 (ms)
+        private DateTime lastChartUpdateTime = DateTime.MinValue;
+
+        // 그래프 데이터 큐
+        private Queue<Point> forefootHeelData = new Queue<Point>(MAX_CHART_POINTS);
+        private Queue<Point> leftPressureData = new Queue<Point>(MAX_CHART_POINTS);
+        private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
+
+        // 밸런스 값 저장 변수
+        private double leftPercent = 50;
+        private double rightPercent = 50;
+        private double forefootPercent = 50;
+        private double heelPercent = 50;
 
         public MainWindow()
         {
@@ -78,6 +94,8 @@ namespace PressureMapViewer
             InitializeGrid();
 
             InitializeUpdateThrottling();
+
+            InitializeCharts();
         }
 
         private void InitializeUpdateThrottling()
@@ -90,6 +108,78 @@ namespace PressureMapViewer
             _updateThrottleTimer.Start();
 
             _latestData = new ushort[SENSOR_SIZE * SENSOR_SIZE];
+        }
+
+        // 차트 초기화 메서드
+        private void InitializeCharts()
+        {
+            // 각 그래프 라인 초기화
+            ForefootHeelLine.Points = new PointCollection();
+            LeftPressureLine.Points = new PointCollection();
+            RightPressureLine.Points = new PointCollection();
+
+            // 초기 데이터 포인트 추가 (0값으로)
+            for (int i = 0; i < MAX_CHART_POINTS; i++)
+            {
+                double x = i * (ForefootHeelChart.ActualWidth / MAX_CHART_POINTS);
+
+                forefootHeelData.Enqueue(new Point(x, 0));
+                leftPressureData.Enqueue(new Point(x, 0));
+                rightPressureData.Enqueue(new Point(x, 0));
+            }
+
+            // 창 크기 변경 시 차트 업데이트 이벤트 추가
+            SizeChanged += (s, e) => {
+                if (IsLoaded)
+                {
+                    UpdateChartSizes();
+                }
+            };
+
+            // 차트 캔버스 크기 변경 이벤트 추가
+            ForefootHeelChart.SizeChanged += (s, e) => UpdateChartSizes();
+            LeftPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+            RightPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+        }
+
+        // 차트 크기 업데이트 (차트 컨테이너 크기 변경 시 호출)
+        private void UpdateChartSizes()
+        {
+            // 차트가 로드되었는지 확인
+            if (!IsLoaded ||
+                ForefootHeelChart.ActualWidth <= 0 ||
+                LeftPressureChart.ActualWidth <= 0 ||
+                RightPressureChart.ActualWidth <= 0)
+                return;
+
+            // 모든 그래프 데이터 포인트 재계산
+            RecalculateChartPoints(forefootHeelData, ForefootHeelChart, ForefootHeelLine);
+            RecalculateChartPoints(leftPressureData, LeftPressureChart, LeftPressureLine);
+            RecalculateChartPoints(rightPressureData, RightPressureChart, RightPressureLine);
+        }
+
+        // 차트 포인트 재계산 (크기 변경 시)
+        private void RecalculateChartPoints(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine)
+        {
+            if (dataQueue.Count == 0 || chartCanvas.ActualWidth <= 0 || chartCanvas.ActualHeight <= 0)
+                return;
+
+            double width = chartCanvas.ActualWidth;
+            double height = chartCanvas.ActualHeight;
+
+            // 기존 데이터 값을 유지하면서 X 좌표만 업데이트
+            Point[] points = dataQueue.ToArray();
+            PointCollection newPoints = new PointCollection();
+
+            for (int i = 0; i < points.Length; i++)
+            {
+                double x = (double)i / (MAX_CHART_POINTS - 1) * width;
+                double y = height - (points[i].Y * height / 100); // 퍼센트 값을 Y 좌표로 변환
+
+                newPoints.Add(new Point(x, y));
+            }
+
+            chartLine.Points = newPoints;
         }
 
         // 타이머 틱 이벤트 처리기
@@ -118,6 +208,14 @@ namespace PressureMapViewer
                     UpdateCenterOfPressure(_latestData);
                     UpdateBalanceGauges(_latestData );
 
+                    // 일정 시간마다 차트 업데이트 (성능 최적화)
+                    TimeSpan chartUpdateElapsed = DateTime.Now - lastChartUpdateTime;
+                    if (chartUpdateElapsed.TotalMilliseconds >= CHART_UPDATE_INTERVAL_MS)
+                    {
+                        UpdateCharts();
+                        lastChartUpdateTime = DateTime.Now;
+                    }
+
                     // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
                     if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
                     {
@@ -130,6 +228,63 @@ namespace PressureMapViewer
                     Console.WriteLine($"Rendering error: {ex.Message}");
                 }
             }
+        }
+
+        // 차트 업데이트 메서드
+        private void UpdateCharts()
+        {
+            // 캔버스 크기 확인
+            if (ForefootHeelChart.ActualWidth <= 0 || LeftPressureChart.ActualWidth <= 0 || RightPressureChart.ActualWidth <= 0)
+                return;
+
+            double width1 = ForefootHeelChart.ActualWidth;
+            double height1 = ForefootHeelChart.ActualHeight;
+            double width2 = LeftPressureChart.ActualWidth;
+            double height2 = LeftPressureChart.ActualHeight;
+            double width3 = RightPressureChart.ActualWidth;
+            double height3 = RightPressureChart.ActualHeight;
+
+            // 이전 데이터 큐에서 첫 번째 항목 제거
+            if (forefootHeelData.Count >= MAX_CHART_POINTS)
+                forefootHeelData.Dequeue();
+            if (leftPressureData.Count >= MAX_CHART_POINTS)
+                leftPressureData.Dequeue();
+            if (rightPressureData.Count >= MAX_CHART_POINTS)
+                rightPressureData.Dequeue();
+
+            // 새 데이터 포인트 추가 (현재 균형값)
+            forefootHeelData.Enqueue(new Point(width1, forefootPercent));
+            leftPressureData.Enqueue(new Point(width2, leftPercent));
+            rightPressureData.Enqueue(new Point(width3, rightPercent));
+
+            // 차트 포인트 갱신
+            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine);
+            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine);
+            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine);
+
+            // 현재 값 텍스트 업데이트
+            ForefootHeelValueText.Text = $"F: {Math.Round(forefootPercent)}% / H: {Math.Round(heelPercent)}%";
+            LeftPressureValueText.Text = $"{Math.Round(leftPercent)}%";
+            RightPressureValueText.Text = $"{Math.Round(rightPercent)}%";
+        }
+
+        // 차트 라인 업데이트 메서드
+        private void UpdateChartLine(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine)
+        {
+            double width = chartCanvas.ActualWidth;
+            double height = chartCanvas.ActualHeight;
+
+            Point[] points = dataQueue.ToArray();
+            PointCollection newPoints = new PointCollection();
+
+            for (int i = 0; i < points.Length; i++)
+            {
+                double x = (double)i / (points.Length - 1) * width;
+                double y = height - (points[i].Y * height / 100); // 퍼센트 값을 Y 좌표로 변환
+                newPoints.Add(new Point(x, y));
+            }
+
+            chartLine.Points = newPoints;
         }
 
         private int[] precomputedColors; // BGR32 포맷으로 미리 계산된 색상
@@ -531,10 +686,10 @@ namespace PressureMapViewer
             if (totalPressure > 0)
             {
                 // 백분율 계산
-                double leftPercent = (leftPressure / totalPressure) * 100;
-                double rightPercent = (rightPressure / totalPressure) * 100;
-                double forefootPercent = (forefootPressure / totalPressure) * 100;
-                double heelPercent = (heelPressure / totalPressure) * 100;
+                leftPercent = (leftPressure / totalPressure) * 100;
+                rightPercent = (rightPressure / totalPressure) * 100;
+                forefootPercent = (forefootPressure / totalPressure) * 100;
+                heelPercent = (heelPressure / totalPressure) * 100;
 
                 // 애니메이션 없이 게이지 높이/너비 직접 설정
                 double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;

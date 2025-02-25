@@ -120,20 +120,21 @@
             </StackPanel>
         </Grid>
 
-        <!-- 오른쪽: 3D Surface Chart -->
-        <Border Grid.Column="1" 
-                Background="#1F1F1F" 
-                Margin="20"
-                ClipToBounds="True">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+        <!-- 오른쪽: 3D Surface Chart 및 시계열 그래프 -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="600"/>
+                <!-- 시계열 그래프를 위한 영역 -->
+            </Grid.RowDefinitions>
 
-                <Viewport3D x:Name="viewport3D" 
-                           Grid.Row="0"
-                           ClipToBounds="True">
+            <!-- 3D 뷰포트 -->
+            <Border Grid.Row="0" 
+                    Background="#1F1F1F" 
+                    Margin="10,20,10,5"
+                    ClipToBounds="True">
+                <Viewport3D x:Name="viewport3D" ClipToBounds="True">
                     <Viewport3D.Camera>
                         <PerspectiveCamera x:Name="camera"
                                          Position="0,3,3"
@@ -142,29 +143,80 @@
                                          FieldOfView="45"/>
                     </Viewport3D.Camera>
                 </Viewport3D>
+            </Border>
 
-                <!-- 컨트롤 버튼 -->
-                <StackPanel Grid.Row="1" 
-                          Orientation="Horizontal"
-                          HorizontalAlignment="Center"
-                          Margin="0,10,0,0">
-                    <Button x:Name="resetViewButton"
-                            Content="Reset View"
-                            Click="ResetView_Click"
-                            Margin="5"
-                            Padding="10,5"/>
-                    <Button x:Name="rotateLeftButton"
-                            Content="Rotate Left"
-                            Click="RotateLeft_Click"
-                            Margin="5"
-                            Padding="10,5"/>
-                    <Button x:Name="rotateRightButton"
-                            Content="Rotate Right"
-                            Click="RotateRight_Click"
-                            Margin="5"
-                            Padding="10,5"/>
-                </StackPanel>
+            <!-- 3D 컨트롤 버튼 -->
+            <StackPanel Grid.Row="1" 
+                      Orientation="Horizontal"
+                      HorizontalAlignment="Center"
+                      Margin="0,5,0,5">
+                <Button x:Name="resetViewButton"
+                        Content="Reset View"
+                        Click="ResetView_Click"
+                        Margin="5"
+                        Padding="10,5"/>
+                <Button x:Name="rotateLeftButton"
+                        Content="Rotate Left"
+                        Click="RotateLeft_Click"
+                        Margin="5"
+                        Padding="10,5"/>
+                <Button x:Name="rotateRightButton"
+                        Content="Rotate Right"
+                        Click="RotateRight_Click"
+                        Margin="5"
+                        Padding="10,5"/>
+            </StackPanel>
+
+            <!-- 시계열 그래프 영역 -->
+            <Grid Grid.Row="2" Margin="10,5,10,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 앞/뒤 균형 그래프 (녹색) -->
+                <Border Grid.Row="0" Background="#252525" Margin="0,0,0,5" CornerRadius="5">
+                    <Grid>
+                        <Canvas x:Name="ForefootHeelChart" ClipToBounds="True">
+                            <Polyline x:Name="ForefootHeelLine" Stroke="#32CD32" StrokeThickness="2"/>
+                        </Canvas>
+                        <TextBlock Text="Balance" Foreground="White" FontSize="12" 
+                                  Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="ForefootHeelValueText" Text="F: 0% / H: 0%" Foreground="White" 
+                                  FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
+                                  HorizontalAlignment="Right"/>
+                    </Grid>
+                </Border>
+
+                <!-- 왼쪽 압력 그래프 (빨간색) -->
+                <Border Grid.Row="1" Background="#252525" Margin="0,5" CornerRadius="5">
+                    <Grid>
+                        <Canvas x:Name="LeftPressureChart" ClipToBounds="True">
+                            <Polyline x:Name="LeftPressureLine" Stroke="#FF4500" StrokeThickness="2"/>
+                        </Canvas>
+                        <TextBlock Text="Left Pressure" Foreground="White" FontSize="12" 
+                                  Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="LeftPressureValueText" Text="0%" Foreground="White" 
+                                  FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
+                                  HorizontalAlignment="Right"/>
+                    </Grid>
+                </Border>
+
+                <!-- 오른쪽 압력 그래프 (파란색) -->
+                <Border Grid.Row="2" Background="#252525" Margin="0,5,0,0" CornerRadius="5">
+                    <Grid>
+                        <Canvas x:Name="RightPressureChart" ClipToBounds="True">
+                            <Polyline x:Name="RightPressureLine" Stroke="#1E90FF" StrokeThickness="2"/>
+                        </Canvas>
+                        <TextBlock Text="Right Pressure" Foreground="White" FontSize="12" 
+                                  Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="RightPressureValueText" Text="0%" Foreground="White" 
+                                  FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
+                                  HorizontalAlignment="Right"/>
+                    </Grid>
+                </Border>
             </Grid>
-        </Border>
+        </Grid>
     </Grid>
 </Window>
