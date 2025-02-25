@@ -31,9 +31,10 @@ namespace PressureMapViewer
         private GeometryModel3D[,] meshGrid;
         
         // 카메라 관련
-        private const double INITIAL_POSITION_Y = 2.5;
-        private const double INITIAL_POSITION_Z = 2.5;
-        private double rotationAngle = 0;
+        private const double INITIAL_POSITION_Y = 3.0;
+        private const double INITIAL_POSITION_Z = 3.0;
+        private const double INITIAL_ANGLE = 15.0;
+        private double rotationAngle = INITIAL_ANGLE;
         private double cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
         private double cameraHeight = INITIAL_POSITION_Z;
         private Point3D initialPosition;
@@ -903,7 +904,7 @@ namespace PressureMapViewer
             camera.Position = initialPosition;
             camera.LookDirection = initialLookDirection;
             camera.UpDirection = initialUpDirection;
-            rotationAngle = 0;
+            rotationAngle = INITIAL_ANGLE;
             cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
             cameraHeight = INITIAL_POSITION_Z;
             UpdateCameraPosition();

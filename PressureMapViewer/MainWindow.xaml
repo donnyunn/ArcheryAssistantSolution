@@ -125,7 +125,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="600"/>
+                <RowDefinition Height="450"/>
                 <!-- 시계열 그래프를 위한 영역 -->
             </Grid.RowDefinitions>
 
@@ -181,7 +181,7 @@
                         <Canvas x:Name="ForefootHeelChart" ClipToBounds="True">
                             <Polyline x:Name="ForefootHeelLine" Stroke="#32CD32" StrokeThickness="2"/>
                         </Canvas>
-                        <TextBlock Text="Balance" Foreground="White" FontSize="12" 
+                        <TextBlock Text="좌우 균형" Foreground="White" FontSize="12" 
                                   Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="ForefootHeelValueText" Text="F: 0% / H: 0%" Foreground="White" 
                                   FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
@@ -195,7 +195,7 @@
                         <Canvas x:Name="LeftPressureChart" ClipToBounds="True">
                             <Polyline x:Name="LeftPressureLine" Stroke="#FF4500" StrokeThickness="2"/>
                         </Canvas>
-                        <TextBlock Text="Left Pressure" Foreground="White" FontSize="12" 
+                        <TextBlock Text="왼발 앞뒤 균형" Foreground="White" FontSize="12" 
                                   Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="LeftPressureValueText" Text="0%" Foreground="White" 
                                   FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
@@ -209,7 +209,7 @@
                         <Canvas x:Name="RightPressureChart" ClipToBounds="True">
                             <Polyline x:Name="RightPressureLine" Stroke="#1E90FF" StrokeThickness="2"/>
                         </Canvas>
-                        <TextBlock Text="Right Pressure" Foreground="White" FontSize="12" 
+                        <TextBlock Text="오른발 앞뒤 균형" Foreground="White" FontSize="12" 
                                   Margin="10,5,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="RightPressureValueText" Text="0%" Foreground="White" 
                                   FontSize="12" Margin="10,0,10,5" VerticalAlignment="Bottom" 
