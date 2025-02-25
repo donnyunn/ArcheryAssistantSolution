@@ -18,7 +18,6 @@ namespace PressureMapViewer
         private const int FPS_3D = 30;
 
         // 렌더링 관련
-        private ushort[]? _pendingData;
         private DateTime _lastRenderTime = DateTime.MinValue;
         private readonly object _dataLock = new object();
 
@@ -56,11 +55,15 @@ namespace PressureMapViewer
         private ModelVisual3D gridVisual;
         private const double GRID_SPACING = 0.2; // 격자 간격
 
-        // 1. 스로틀링 타이머 추가 (클래스 멤버 변수로)
+        // 스로틀링 타이머 추가
         private System.Windows.Threading.DispatcherTimer _updateThrottleTimer;
         private ushort[] _latestData;
         private bool _dataUpdatedSinceLastRender = false;
         private const int THROTTLE_INTERVAL_MS = 33; // 약 30fps로 제한
+
+        // 밸런스 게이지 관련
+        private const double WEIGHT_THRESHOLD = 100.0; // 유효 압력 임계값
+        private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
 
         public MainWindow()
         {
@@ -113,6 +116,7 @@ namespace PressureMapViewer
                 {
                     Update2D(_latestData);
                     UpdateCenterOfPressure(_latestData);
+                    UpdateBalanceGauges(_latestData );
 
                     // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
                     if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
@@ -137,7 +141,7 @@ namespace PressureMapViewer
                 heatmapPalette[i] = GetHeatmapColor(value);
             }
 
-            // 추가: BGR32 형식으로 미리 계산
+            // BGR32 형식으로 미리 계산
             precomputedColors = new int[heatmapPalette.Length];
             for (int i = 0; i < heatmapPalette.Length; i++)
             {
@@ -426,7 +430,8 @@ namespace PressureMapViewer
                 Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
 
                 // 현재 압력이 임계값을 넘을 때만 궤적에 추가
-                if (totalPressure > 4608) // 임계값은 적절히 조정 필요
+                //if (totalPressure > 4608) // 임계값은 적절히 조정 필요
+                if (totalPressure > 1000)
                 {
                     // 궤적 히스토리 업데이트
                     copHistory.Enqueue(new Point(screenX, screenY));
@@ -436,7 +441,7 @@ namespace PressureMapViewer
                     }
 
                     // 궤적 라인 업데이트
-                    var points = new PointCollection(copHistory);
+                    PointCollection points = new PointCollection(copHistory);
                     copTrajectory.Points = points;
 
                     // 궤적 색상 그라데이션 업데이트
@@ -469,6 +474,157 @@ namespace PressureMapViewer
             }
         }
 
+        private void UpdateBalanceGauges(ushort[] data)
+        {
+            double totalPressure = 0;
+            double leftPressure = 0;
+            double rightPressure = 0;
+            double forefootPressure = 0;
+            double heelPressure = 0;
+
+            // 발 중앙선 (왼쪽/오른쪽 구분)
+            int centerX = SENSOR_SIZE / 2;
+            // 발 중앙선 (앞쪽/뒤쪽 구분) - 일반적으로 전체 길이의 40~60% 지점
+            int centerY = SENSOR_SIZE / 2;
+
+            // 무게중심이 계산되었다면 사용
+            if (centerOfPressure.X > 0 && centerOfPressure.Y > 0)
+            {
+                centerX = (int)footCenter.X; // 발의 가로 중심선
+                centerY = (int)footCenter.Y; // 발의 세로 중심선
+            }
+
+            // 좌우, 전후 압력 계산
+            for (int y = 0; y < SENSOR_SIZE; y++)
+            {
+                for (int x = 0; x < SENSOR_SIZE; x++)
+                {
+                    double pressure = data[y * SENSOR_SIZE + x];
+
+                    if (pressure < WEIGHT_THRESHOLD) // 너무 작은 값은 무시
+                        continue;
+
+                    totalPressure += pressure;
+
+                    // 좌우 분리
+                    if (x < centerX)
+                    {
+                        leftPressure += pressure;
+                    }
+                    else
+                    {
+                        rightPressure += pressure;
+                    }
+
+                    // 전후 분리
+                    if (y < centerY)
+                    {
+                        forefootPressure += pressure; // 앞쪽 (forefoot)
+                    }
+                    else
+                    {
+                        heelPressure += pressure; // 뒤쪽 (heel)
+                    }
+                }
+            }
+
+            if (totalPressure > 0)
+            {
+                // 백분율 계산
+                double leftPercent = (leftPressure / totalPressure) * 100;
+                double rightPercent = (rightPressure / totalPressure) * 100;
+                double forefootPercent = (forefootPressure / totalPressure) * 100;
+                double heelPercent = (heelPressure / totalPressure) * 100;
+
+                // 애니메이션 없이 게이지 높이/너비 직접 설정
+                double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;
+                double maxWidth = ForefootGauge.Parent is FrameworkElement frontParent ? frontParent.ActualWidth / 2 : 400;
+
+                // 왼쪽 게이지 업데이트
+                LeftGauge.Height = maxHeight * leftPercent / 100;
+                LeftPercentText.Text = $"{Math.Round(leftPercent)}%";
+
+                // 오른쪽 게이지 업데이트
+                RightGauge.Height = maxHeight * rightPercent / 100;
+                RightPercentText.Text = $"{Math.Round(rightPercent)}%";
+
+                // 앞쪽 게이지 업데이트
+                ForefootGauge.Width = maxWidth * forefootPercent / 100;
+                ForefootPercentText.Text = $"{Math.Round(forefootPercent)}%";
+
+                // 뒤쪽 게이지 업데이트
+                HeelGauge.Width = maxWidth * heelPercent / 100;
+                HeelPercentText.Text = $"{Math.Round(heelPercent)}%";
+
+                // 하단 좌우 균형 텍스트 업데이트
+                LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
+                RightBalanceText.Text = $"{Math.Round(rightPercent)}";
+
+                // 게이지 색상 업데이트 (편향성에 따라)
+                UpdateGaugeColors(leftPercent, rightPercent, forefootPercent, heelPercent);
+            }
+        }
+
+        private void UpdateGaugeColors(double leftPercent, double rightPercent,
+                                      double forefootPercent, double heelPercent)
+        {
+            // 좌우 균형 색상 업데이트 (45-55% 범위는 녹색, 그 외는 경고색)
+            Color leftColor, rightColor;
+
+            if (Math.Abs(leftPercent - 50) <= 5)
+            {
+                leftColor = Colors.LimeGreen; // 밸런스가 좋음
+            }
+            else if (Math.Abs(leftPercent - 50) <= 15)
+            {
+                leftColor = Colors.Yellow; // 약간 불균형
+            }
+            else
+            {
+                leftColor = Colors.Red; // 심한 불균형
+            }
+
+            if (Math.Abs(rightPercent - 50) <= 5)
+            {
+                rightColor = Colors.LimeGreen;
+            }
+            else if (Math.Abs(rightPercent - 50) <= 15)
+            {
+                rightColor = Colors.Yellow;
+            }
+            else
+            {
+                rightColor = Colors.Red;
+            }
+
+            LeftGauge.Fill = new SolidColorBrush(leftColor);
+            RightGauge.Fill = new SolidColorBrush(rightColor);
+
+            // 전후 균형 색상 업데이트 (일반적으로 앞/뒤 40-60% 비율이 좋음)
+            Color forefootColor, heelColor;
+
+            if (Math.Abs(forefootPercent - 45) <= 15) // 30-60% 범위는 정상
+            {
+                forefootColor = Colors.DodgerBlue; // 정상 범위
+            }
+            else
+            {
+                forefootColor = Colors.Orange; // 불균형
+            }
+
+            if (Math.Abs(heelPercent - 55) <= 15) // 40-70% 범위는 정상
+            {
+                heelColor = Colors.DodgerBlue; // 정상 범위
+            }
+            else
+            {
+                heelColor = Colors.Orange; // 불균형
+            }
+
+            ForefootGauge.Fill = new SolidColorBrush(forefootColor);
+            HeelGauge.Fill = new SolidColorBrush(heelColor);
+        }
+
         public void UpdatePressureData(ushort[] data)
         {
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
@@ -476,7 +632,6 @@ namespace PressureMapViewer
 
             lock (_dataLock)
             {
-                //_pendingData = data;
                 Buffer.BlockCopy(data, 0, _latestData, 0, data.Length * sizeof(ushort));
                 _dataUpdatedSinceLastRender = true;
             }
@@ -502,8 +657,8 @@ namespace PressureMapViewer
                     {
                         float normalizedValue = data[y * SENSOR_SIZE + x] / 1024.0f;
                         int colorIndex = Math.Min((int)(normalizedValue * (heatmapPalette.Length - 1)), heatmapPalette.Length - 1);
-                        Color color = heatmapPalette[colorIndex];
-
+                        
+                        //Color color = heatmapPalette[colorIndex];
                         // ARGB 값 계산 (알파는 255로 고정)
                         //*pDest++ = (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
                         *pDest++ = precomputedColors[colorIndex];
@@ -521,7 +676,6 @@ namespace PressureMapViewer
         // 3D 업데이트 최적화 - 성능을 위해 매 프레임마다 모든 셀을 업데이트하지 않음
         private int _3dUpdateCounter = 0;
         private const int UPDATE_3D_FREQUENCY = 3; // 3프레임마다 한 번씩 3D 업데이트
-
         private void Update3D(ushort[] data)
         {
             _3dUpdateCounter++;
