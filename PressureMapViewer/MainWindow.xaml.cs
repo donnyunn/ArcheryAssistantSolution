@@ -11,6 +11,19 @@ using System.Windows.Controls;
 
 namespace PressureMapViewer
 {
+    // Color 확장 메서드 (밝기 조절용)
+    public static class ColorExtensions
+    {
+        public static Color ChangeBrightness(this Color color, double factor)
+        {
+            return Color.FromArgb(
+                color.A,
+                (byte)Math.Clamp(color.R * factor, 0, 255),
+                (byte)Math.Clamp(color.G * factor, 0, 255),
+                (byte)Math.Clamp(color.B * factor, 0, 255));
+        }
+    }
+
     public partial class MainWindow : Window
     {
         private const int SENSOR_SIZE = 96;
@@ -77,6 +90,11 @@ namespace PressureMapViewer
         private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
 
         // 밸런스 값 저장 변수
+        private double leftForefootPercent = 0; // 왼쪽 발의 앞부분 비율
+        private double leftHeelPercent = 0;     // 왼쪽 발의 뒷부분 비율
+        private double rightForefootPercent = 0; // 오른쪽 발의 앞부분 비율
+        private double rightHeelPercent = 0;     // 오른쪽 발의 뒷부분 비율
+
         private double leftPercent = 50;
         private double rightPercent = 50;
         private double forefootPercent = 50;
@@ -254,9 +272,9 @@ namespace PressureMapViewer
                 rightPressureData.Dequeue();
 
             // 새 데이터 포인트 추가 (현재 균형값)
-            forefootHeelData.Enqueue(new Point(width1, forefootPercent));
-            leftPressureData.Enqueue(new Point(width2, leftPercent));
-            rightPressureData.Enqueue(new Point(width3, rightPercent));
+            forefootHeelData.Enqueue(new Point(width1, leftPercent)); // 좌우 균형 (초록색)
+            leftPressureData.Enqueue(new Point(width2, leftForefootPercent)); // 왼쪽 발 앞/뒤 균형 (빨간색)
+            rightPressureData.Enqueue(new Point(width3, rightForefootPercent)); // 오른쪽 발 앞/뒤 균형 (파란색)
 
             // 차트 포인트 갱신
             UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine);
@@ -264,9 +282,9 @@ namespace PressureMapViewer
             UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine);
 
             // 현재 값 텍스트 업데이트
-            ForefootHeelValueText.Text = $"F: {Math.Round(forefootPercent)}% / H: {Math.Round(heelPercent)}%";
-            LeftPressureValueText.Text = $"{Math.Round(leftPercent)}%";
-            RightPressureValueText.Text = $"{Math.Round(rightPercent)}%";
+            ForefootHeelValueText.Text = $"L: {Math.Round(leftPercent)}% / R: {Math.Round(rightPercent)}%";
+            LeftPressureValueText.Text = $"F: {Math.Round(leftForefootPercent)}% / H: {Math.Round(leftHeelPercent)}%";
+            RightPressureValueText.Text = $"F: {Math.Round(rightForefootPercent)}% / H: {Math.Round(rightHeelPercent)}%";
         }
 
         // 차트 라인 업데이트 메서드
@@ -638,6 +656,12 @@ namespace PressureMapViewer
             double forefootPressure = 0;
             double heelPressure = 0;
 
+            // 각 사분면(Quadrant)에 대한 압력 계산
+            double leftForefootPressure = 0;
+            double leftHeelPressure = 0;
+            double rightForefootPressure = 0;
+            double rightHeelPressure = 0;
+
             // 발 중앙선 (왼쪽/오른쪽 구분)
             int centerX = SENSOR_SIZE / 2;
             // 발 중앙선 (앞쪽/뒤쪽 구분) - 일반적으로 전체 길이의 40~60% 지점
@@ -666,10 +690,30 @@ namespace PressureMapViewer
                     if (x < centerX)
                     {
                         leftPressure += pressure;
+
+                        // 왼쪽 발의 앞/뒤 구분
+                        if (y < centerY)
+                        {
+                            leftForefootPressure += pressure; // 왼쪽-앞
+                        }
+                        else
+                        {
+                            leftHeelPressure += pressure; // 왼쪽-뒤
+                        }
                     }
                     else
                     {
                         rightPressure += pressure;
+
+                        // 오른쪽 발의 앞/뒤 구분
+                        if (y < centerY)
+                        {
+                            rightForefootPressure += pressure; // 오른쪽-앞
+                        }
+                        else
+                        {
+                            rightHeelPressure += pressure; // 오른쪽-뒤
+                        }
                     }
 
                     // 전후 분리
@@ -692,93 +736,128 @@ namespace PressureMapViewer
                 forefootPercent = (forefootPressure / totalPressure) * 100;
                 heelPercent = (heelPressure / totalPressure) * 100;
 
+                // 각 발의 앞/뒤 균형 백분율 계산
+                double leftTotalPressure = leftPressure;
+                if (leftTotalPressure > 0)
+                {
+                    leftForefootPercent = (leftForefootPressure / leftTotalPressure) * 100;
+                    leftHeelPercent = (leftHeelPressure / leftTotalPressure) * 100;
+                }
+                else
+                {
+                    leftForefootPercent = 0;
+                    leftHeelPercent = 0;
+                }
+
+                double rightTotalPressure = rightPressure;
+                if (rightTotalPressure > 0)
+                {
+                    rightForefootPercent = (rightForefootPressure / rightTotalPressure) * 100;
+                    rightHeelPercent = (rightHeelPressure / rightTotalPressure) * 100;
+                }
+                else
+                {
+                    rightForefootPercent = 0;
+                    rightHeelPercent = 0;
+                }
+
                 // 애니메이션 없이 게이지 높이/너비 직접 설정
                 double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;
                 double maxWidth = ForefootGauge.Parent is FrameworkElement frontParent ? frontParent.ActualWidth / 2 : 400;
 
                 // 왼쪽 게이지 업데이트
-                LeftGauge.Height = maxHeight * leftPercent / 100;
-                LeftPercentText.Text = $"{Math.Round(leftPercent)}%";
+                LeftGauge.Height = maxHeight * leftForefootPercent / 100;
+                LeftPercentText.Text = $"{Math.Round(leftForefootPercent)}%";
 
                 // 오른쪽 게이지 업데이트
-                RightGauge.Height = maxHeight * rightPercent / 100;
-                RightPercentText.Text = $"{Math.Round(rightPercent)}%";
+                RightGauge.Height = maxHeight * rightForefootPercent / 100;
+                RightPercentText.Text = $"{Math.Round(rightForefootPercent)}%";
 
                 // 앞쪽 게이지 업데이트
-                ForefootGauge.Width = maxWidth * forefootPercent / 100;
-                ForefootPercentText.Text = $"{Math.Round(forefootPercent)}%";
+                ForefootGauge.Width = maxWidth * leftPercent / 100;
+                ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
 
                 // 뒤쪽 게이지 업데이트
-                HeelGauge.Width = maxWidth * heelPercent / 100;
-                HeelPercentText.Text = $"{Math.Round(heelPercent)}%";
+                HeelGauge.Width = maxWidth * rightPercent / 100;
+                HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
 
                 // 하단 좌우 균형 텍스트 업데이트
                 LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
                 RightBalanceText.Text = $"{Math.Round(rightPercent)}";
 
                 // 게이지 색상 업데이트 (편향성에 따라)
-                UpdateGaugeColors(leftPercent, rightPercent, forefootPercent, heelPercent);
+                UpdateGaugeColors(leftForefootPercent, rightForefootPercent, leftPercent, rightPercent);
             }
         }
 
         private void UpdateGaugeColors(double leftPercent, double rightPercent,
                                       double forefootPercent, double heelPercent)
         {
-            // 좌우 균형 색상 업데이트 (45-55% 범위는 녹색, 그 외는 경고색)
+            // 왼쪽/오른쪽 게이지 색상 (왼발/오른발의 앞뒤 밸런스에 따라)
             Color leftColor, rightColor;
 
-            if (Math.Abs(leftPercent - 50) <= 5)
+
+            // 앞/뒤 밸런스에 따른 색상 결정 (앞쪽이 30-60% 범위에 있으면 녹색)
+            if (leftForefootPercent >= 30 && leftForefootPercent <= 60)
             {
                 leftColor = Colors.LimeGreen; // 밸런스가 좋음
             }
-            else if (Math.Abs(leftPercent - 50) <= 15)
+            else if (leftForefootPercent > 60)
             {
-                leftColor = Colors.Yellow; // 약간 불균형
+                leftColor = Colors.Yellow; // 앞쪽으로 편중
             }
             else
             {
-                leftColor = Colors.Red; // 심한 불균형
+                leftColor = Colors.Orange; // 뒤쪽으로 편중
             }
 
-            if (Math.Abs(rightPercent - 50) <= 5)
+            if (rightForefootPercent >= 30 && rightForefootPercent <= 60)
             {
                 rightColor = Colors.LimeGreen;
             }
-            else if (Math.Abs(rightPercent - 50) <= 15)
+            else if (rightForefootPercent > 60)
             {
                 rightColor = Colors.Yellow;
             }
             else
             {
-                rightColor = Colors.Red;
+                rightColor = Colors.Orange;
             }
 
             LeftGauge.Fill = new SolidColorBrush(leftColor);
             RightGauge.Fill = new SolidColorBrush(rightColor);
 
-            // 전후 균형 색상 업데이트 (일반적으로 앞/뒤 40-60% 비율이 좋음)
-            Color forefootColor, heelColor;
+            // 수평 게이지 색상 (좌우 밸런스에 따라)
+            Color leftFootColor, rightFootColor;
 
-            if (Math.Abs(forefootPercent - 45) <= 15) // 30-60% 범위는 정상
+            if (Math.Abs(leftPercent - 50) <= 5)
             {
-                forefootColor = Colors.DodgerBlue; // 정상 범위
+                leftFootColor = Colors.DodgerBlue; // 균형 좋음
+            }
+            else if (leftPercent > 55)
+            {
+                leftFootColor = Colors.DodgerBlue; // 왼쪽 강조
             }
             else
             {
-                forefootColor = Colors.Orange; // 불균형
+                leftFootColor = Colors.RoyalBlue.ChangeBrightness(0.8); // 왼쪽 약함
             }
 
-            if (Math.Abs(heelPercent - 55) <= 15) // 40-70% 범위는 정상
+            if (Math.Abs(rightPercent - 50) <= 5)
             {
-                heelColor = Colors.DodgerBlue; // 정상 범위
+                rightFootColor = Colors.DodgerBlue; // 균형 좋음
+            }
+            else if (rightPercent > 55)
+            {
+                rightFootColor = Colors.DodgerBlue; // 오른쪽 강조
             }
             else
             {
-                heelColor = Colors.Orange; // 불균형
+                rightFootColor = Colors.RoyalBlue.ChangeBrightness(0.8); // 오른쪽 약함
             }
 
-            ForefootGauge.Fill = new SolidColorBrush(forefootColor);
-            HeelGauge.Fill = new SolidColorBrush(heelColor);
+            ForefootGauge.Fill = new SolidColorBrush(leftFootColor);
+            HeelGauge.Fill = new SolidColorBrush(rightFootColor);
         }
 
         public void UpdatePressureData(ushort[] data)

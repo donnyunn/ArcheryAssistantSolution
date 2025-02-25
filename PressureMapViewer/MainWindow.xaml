@@ -15,15 +15,6 @@
         </Grid.ColumnDefinitions>
 
         <!-- 왼쪽: 2D 히트맵 및 무게중심 게이지 -->
-        <!--<Border Grid.Column="0" 
-            Background="#1F1F1F" 
-            Margin="20">
-            <Image x:Name="HeatmapImage" 
-                RenderOptions.BitmapScalingMode="NearestNeighbor"
-                Stretch="Uniform"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"/>
-        </Border> -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
