@@ -227,11 +227,20 @@ namespace MultiWebcamApp
                 {
                     long frameStartTime = stopwatch.ElapsedMilliseconds;
 
-                    _ = Task.WhenAll(
-                        Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                        Task.Run(() => _webcamFormBody.work(frameStartTime)),
-                        Task.Run(() => _footpadForm.UpdateFrame())
-                    );
+                    if (frameCount % 2 == 0)
+                    {
+                        _ = Task.WhenAll(
+                            Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                            Task.Run(() => _webcamFormBody.work(frameStartTime)),
+                            Task.Run(() => _footpadForm.UpdateFrame())
+                        );
+                    } else
+                    {
+                        _ = Task.WhenAll(
+                            Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                            Task.Run(() => _webcamFormBody.work(frameStartTime))
+                        );
+                    }
 
                     frameCount++;
 

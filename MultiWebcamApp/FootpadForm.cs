@@ -29,8 +29,8 @@ namespace MultiWebcamApp
             {
                 Port = new SerialPort(portName, 3000000, Parity.None, 8, StopBits.One)
                 {
-                    ReadTimeout = 1000,
-                    WriteTimeout = 1000,
+                    ReadTimeout = 100,
+                    WriteTimeout = 100,
                     ReadBufferSize = 16384,
                 };
                 Port.Open();
@@ -50,7 +50,7 @@ namespace MultiWebcamApp
             try
             {
                 // Clear buffers
-                if (Port.BytesToRead > 0)
+                if (Port.BytesToRead > 1000)
                 {
                     Port.DiscardInBuffer();
                     Port.DiscardOutBuffer();
@@ -68,31 +68,65 @@ namespace MultiWebcamApp
                 var startTime = DateTime.Now;
                 const int TIMEOUT_MS = 100;  // 1000ms에서 100ms로 감소
 
-                while (totalBytesRead < EXPECTED_SIZE)
+                // 2단계 읽기 접근법: 첫 번째로 헤더를 찾고, 그 다음 나머지 데이터를 읽음
+                // 헤더 읽기 (최대 20바이트 정도면 충분)
+                const int HEADER_SIZE = 20;
+                int headerBytesRead = 0;
+                while (headerBytesRead < HEADER_SIZE)
+                {
+                    if ((DateTime.Now - startTime).TotalMilliseconds > TIMEOUT_MS)
+                        return false;
+
+                    int bytesToRead = Port.BytesToRead;
+                    if (bytesToRead == 0) continue;
+
+                    int maxRead = Math.Min(bytesToRead, HEADER_SIZE - headerBytesRead);
+                    int bytesRead = Port.Read(buffer, headerBytesRead, maxRead);
+
+                    if (bytesRead == 0) continue;
+
+                    headerBytesRead += bytesRead;
+                }
+
+                // 헤더 확인
+                int headerStart = FindHeader(buffer, headerBytesRead);
+                if (headerStart == -1) 
+                    return false;
+
+                // 길이 확인
+                int dataLength = GetDataLength(buffer, headerStart);
+                if (dataLength != 4608)
+                    return false;
+
+                // 총 패킷 길이 계산
+                int totalPacketLength = headerStart + 11 + dataLength + 3;
+                totalBytesRead = headerBytesRead;
+
+                // 나머지 데이터 읽기
+                while (totalBytesRead < totalPacketLength)
                 {
                     // 타임아웃 체크
                     if ((DateTime.Now - startTime).TotalMilliseconds > TIMEOUT_MS)
-                    {
                         return false;
-                    }
 
                     int bytesToRead = Port.BytesToRead;
-                    if (bytesToRead == 0) continue;  // Thread.Sleep 제거
+                    if (bytesToRead == 0) continue;
 
-                    // 가능한 한 큰 청크로 읽기
-                    int maxRead = Math.Min(bytesToRead, EXPECTED_SIZE - totalBytesRead);
+                    int maxRead = Math.Min(bytesToRead, totalPacketLength - totalBytesRead);
                     int bytesRead = Port.Read(buffer, totalBytesRead, maxRead);
 
                     if (bytesRead == 0) continue;
 
                     totalBytesRead += bytesRead;
-
-                    // 충분한 데이터가 모였으면 처리 시도
-                    if (totalBytesRead >= EXPECTED_SIZE)
-                    {
-                        return ProcessBuffer(buffer, totalBytesRead);
-                    }
                 }
+
+                // 테일 확인
+                if (!CheckTail(buffer, totalPacketLength - 3))
+                    return false;
+
+                // 데이터 처리
+                ProcessData(buffer, headerStart + 11, dataLength);
+                return true;
             }
             catch (Exception ex)
             {
@@ -163,13 +197,12 @@ namespace MultiWebcamApp
 
         private int FindHeader(byte[] buffer, int length)
         {
-            for (int i = 0; i <= length - 5; i++)
+            for (int i = 0; i <= length - 7; i++)
             {
-                if (buffer[i] == 0x53 &&
-                    buffer[i + 1] == 0x41 &&
-                    buffer[i + 2] == 0x31 &&
-                    buffer[i + 3] == 0x41 &&
-                    buffer[i + 4] == 0x33)
+                if (buffer[i] == 0x53 && buffer[i + 1] == 0x41 &&
+                    buffer[i + 2] == 0x31 && buffer[i + 3] == 0x41 &&
+                    buffer[i + 4] == 0x33 && buffer[i + 5] == 0x35 &&
+                    buffer[i + 6] == 0x35)
                 {
                     return i;
                 }
@@ -227,9 +260,6 @@ namespace MultiWebcamApp
         private readonly object dataLock = new object();
         private bool isRunning = false;
 
-        private int frameCount = 0;
-        private DateTime lastFpsCheck = DateTime.Now;
-
         private System.Windows.Forms.Timer _renderTimer;
 
         public FootpadForm()
@@ -283,6 +313,8 @@ namespace MultiWebcamApp
             pressureMapWindow.Show();
         }
 
+        private ushort[] combinedData = new ushort[9216]; // 96 * 96
+        private int lastProcessedQuadrant = 3;
         public bool UpdateFrame()
         {
             bool ret = false;
@@ -292,37 +324,26 @@ namespace MultiWebcamApp
 
             try
             {
-                frameCount++;
-                TimeSpan elapsed = DateTime.Now - lastFpsCheck;
-                if (elapsed.TotalMilliseconds >= 1000)
+                // 순환식으로 사분면 선택 (0->1->2->3->0->...)
+                int currentQuadrant = (lastProcessedQuadrant + 1) % 4;
+                lastProcessedQuadrant = currentQuadrant;
+
+                // 선택된 사분면만 처리
+                if (devices.ContainsKey(currentQuadrant))
                 {
-                    Console.WriteLine($"Footpad FPS: {frameCount}");
-                    frameCount = 0;
-                    lastFpsCheck = DateTime.Now;
-                }
+                    var device = devices[currentQuadrant];
 
-                do
-                {
-                    // 순차적 데이터 수집
-                    bool hasValidData = false;
-                    foreach (var device in devices.Values)
+                    // 현재 사분면 데이터 수집
+                    bool deviceHasData = device.RequestAndReceiveData();
+
+                    if (deviceHasData)
                     {
-                        hasValidData |= device.RequestAndReceiveData();
-                    }
+                        // 현재 사분면의 위치 계산
+                        int baseRow = (currentQuadrant / 2) * 48;
+                        int baseCol = (currentQuadrant % 2) * 48;
+                        var deviceData = device.LastData;
 
-                    // 하나의 디바이스도 데이터를 얻지 못했다면 종료
-                    if (!hasValidData) break;
-
-                    // 데이터 결합
-                    ushort[] combinedData = new ushort[9216]; // 96 * 96
-                    for (int quadrant = 0; quadrant < 4; quadrant++)
-                    {
-                        if (!devices.ContainsKey(quadrant)) continue;
-
-                        int baseRow = (quadrant / 2) * 48;
-                        int baseCol = (quadrant % 2) * 48;
-                        var deviceData = devices[quadrant].LastData;
-
+                        // 해당 사분면 영역만 업데이트
                         for (int i = 0; i < 48; i++)
                         {
                             for (int j = 0; j < 48; j++)
@@ -330,16 +351,16 @@ namespace MultiWebcamApp
                                 combinedData[(baseRow + i) * 96 + (baseCol + j)] = deviceData[i * 48 + j];
                             }
                         }
+
+                        // UI 업데이트
+                        pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            pressureMapWindow.UpdatePressureData(combinedData);
+                        }), System.Windows.Threading.DispatcherPriority.Background);
+
+                        ret = true;
                     }
-
-                    // UI 업데이트
-                    pressureMapWindow.Dispatcher.Invoke(() =>
-                    {
-                        pressureMapWindow.UpdatePressureData(combinedData);
-                    });
-
-                    ret = true;
-                } while (false);
+                }
             }
             catch (Exception ex)
             {

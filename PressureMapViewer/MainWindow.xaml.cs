@@ -18,7 +18,7 @@ namespace PressureMapViewer
         private const int FPS_3D = 30;
 
         // 렌더링 관련
-        private ushort[] _pendingData;
+        private ushort[]? _pendingData;
         private DateTime _lastRenderTime = DateTime.MinValue;
         private readonly object _dataLock = new object();
 
@@ -56,6 +56,12 @@ namespace PressureMapViewer
         private ModelVisual3D gridVisual;
         private const double GRID_SPACING = 0.2; // 격자 간격
 
+        // 1. 스로틀링 타이머 추가 (클래스 멤버 변수로)
+        private System.Windows.Threading.DispatcherTimer _updateThrottleTimer;
+        private ushort[] _latestData;
+        private bool _dataUpdatedSinceLastRender = false;
+        private const int THROTTLE_INTERVAL_MS = 33; // 약 30fps로 제한
+
         public MainWindow()
         {
             InitializeComponent();
@@ -68,35 +74,52 @@ namespace PressureMapViewer
             // 3D 격자 초기화
             InitializeGrid();
 
-            CompositionTarget.Rendering += OnRendering;
+            InitializeUpdateThrottling();
         }
 
-        private void OnRendering(object? sender, EventArgs e)
+        private void InitializeUpdateThrottling()
         {
-            var now = DateTime.Now;
-            ushort[] currentData = null;
-
-            lock (_dataLock)
+            _updateThrottleTimer = new System.Windows.Threading.DispatcherTimer
             {
-                if (_pendingData != null)
+                Interval = TimeSpan.FromMilliseconds(THROTTLE_INTERVAL_MS)
+            };
+            _updateThrottleTimer.Tick += OnUpdateTimerTick;
+            _updateThrottleTimer.Start();
+
+            _latestData = new ushort[SENSOR_SIZE * SENSOR_SIZE];
+        }
+
+        // 타이머 틱 이벤트 처리기
+        int frameCount = 0;
+        private DateTime lastFpsCheck = DateTime.Now;
+        private void OnUpdateTimerTick(object? sender, EventArgs e)
+        {
+            if (_dataUpdatedSinceLastRender)
+            {
+                frameCount++;
+                TimeSpan elapsed = DateTime.Now - lastFpsCheck;
+                if (elapsed.TotalMilliseconds >= 1000)
                 {
-                    currentData = _pendingData;
-                    _pendingData = null;  // 처리된 데이터는 즉시 클리어
+                    Console.WriteLine($"Footpad FPS: {frameCount}");
+                    frameCount = 0;
+                    lastFpsCheck = DateTime.Now;
                 }
-            }
 
-            if (currentData != null && (now - _lastRenderTime).TotalMilliseconds > 1000.0 / FPS_2D)
-            {
+                // 직접 렌더링 메서드를 호출
+                _lastRenderTime = DateTime.Now;
+                _dataUpdatedSinceLastRender = false;
+
                 try
                 {
-                    // 2D 업데이트
-                    Update2D(currentData);
-                    UpdateCenterOfPressure(currentData);
+                    Update2D(_latestData);
+                    UpdateCenterOfPressure(_latestData);
 
-                    Update3D(currentData);
-                    UpdateGrid(currentData);
-
-                    _lastRenderTime = now;
+                    // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
+                    if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
+                    {
+                        Update3D(_latestData);
+                        UpdateGrid(_latestData);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -105,12 +128,21 @@ namespace PressureMapViewer
             }
         }
 
+        private int[] precomputedColors; // BGR32 포맷으로 미리 계산된 색상
         private void InitializeHeatmapPalette()
         {
             for (int i = 0; i < heatmapPalette.Length; i++)
             {
                 float value = (float)i / (heatmapPalette.Length - 1);
                 heatmapPalette[i] = GetHeatmapColor(value);
+            }
+
+            // 추가: BGR32 형식으로 미리 계산
+            precomputedColors = new int[heatmapPalette.Length];
+            for (int i = 0; i < heatmapPalette.Length; i++)
+            {
+                Color color = heatmapPalette[i];
+                precomputedColors[i] = (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
             }
         }
 
@@ -289,8 +321,16 @@ namespace PressureMapViewer
             }
         }
 
+        private int _gridUpdateCounter = 0;
+        private const int UPDATE_GRID_FREQUENCY = 6; // 6프레임마다 한 번씩 격자 업데이트
         private void UpdateGrid(ushort[] data)
         {
+            _gridUpdateCounter++;
+            if (_gridUpdateCounter < UPDATE_GRID_FREQUENCY)
+                return;
+
+            _gridUpdateCounter = 0;
+
             var gridGeometry = new Model3DGroup();
             float scale = 1.0f / 1024;
 
@@ -434,37 +474,42 @@ namespace PressureMapViewer
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
                 return;
 
-            var now = DateTime.Now;
-
             lock (_dataLock)
             {
-                _pendingData = data;
-                //_pendingData = (ushort[])data.Clone();
+                //_pendingData = data;
+                Buffer.BlockCopy(data, 0, _latestData, 0, data.Length * sizeof(ushort));
+                _dataUpdatedSinceLastRender = true;
             }
         }
 
+        // 2D 렌더링 최적화 
         private unsafe void Update2D(ushort[] data)
         {
             try
             {
                 heatmapBitmap.Lock();
 
-                fixed (void* dataPtr = data)
-                fixed (void* colorPtr = colorBuffer)
-                {
-                    var src = (ushort*)dataPtr;
-                    var dst = (int*)colorPtr;
+                // 직접 메모리 조작으로 성능 향상
+                IntPtr pBackBuffer = heatmapBitmap.BackBuffer;
+                int stride = heatmapBitmap.BackBufferStride;
 
-                    for (int i = 0; i < data.Length; i++)
+                // 이미 계산된, 자주 사용하는 색상 값의 룩업 테이블을 사용
+                for (int y = 0; y < SENSOR_SIZE; y++)
+                {
+                    int* pDest = (int*)(pBackBuffer + y * stride);
+
+                    for (int x = 0; x < SENSOR_SIZE; x++)
                     {
-                        float normalizedValue = src[i] / 1024.0f;
-                        int index = (int)(normalizedValue * (heatmapPalette.Length - 1));
-                        Color color = heatmapPalette[index];
-                        dst[i] = (color.R << 16) | (color.G << 8) | color.B;
+                        float normalizedValue = data[y * SENSOR_SIZE + x] / 1024.0f;
+                        int colorIndex = Math.Min((int)(normalizedValue * (heatmapPalette.Length - 1)), heatmapPalette.Length - 1);
+                        Color color = heatmapPalette[colorIndex];
+
+                        // ARGB 값 계산 (알파는 255로 고정)
+                        //*pDest++ = (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
+                        *pDest++ = precomputedColors[colorIndex];
                     }
                 }
 
-                Marshal.Copy(colorBuffer, 0, heatmapBitmap.BackBuffer, colorBuffer.Length);
                 heatmapBitmap.AddDirtyRect(new Int32Rect(0, 0, SENSOR_SIZE, SENSOR_SIZE));
             }
             finally
@@ -473,8 +518,18 @@ namespace PressureMapViewer
             }
         }
 
+        // 3D 업데이트 최적화 - 성능을 위해 매 프레임마다 모든 셀을 업데이트하지 않음
+        private int _3dUpdateCounter = 0;
+        private const int UPDATE_3D_FREQUENCY = 3; // 3프레임마다 한 번씩 3D 업데이트
+
         private void Update3D(ushort[] data)
         {
+            _3dUpdateCounter++;
+            if (_3dUpdateCounter < UPDATE_3D_FREQUENCY)
+                return;
+
+            _3dUpdateCounter = 0;
+
             float scale = 1.0f / 1024;
             for (int z = 0; z < SENSOR_SIZE - 1; z++)
             {
