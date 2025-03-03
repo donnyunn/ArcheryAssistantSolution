@@ -36,6 +36,7 @@
             _backwardButton = new FontAwesome.Sharp.IconButton();
             _pauseButton = new FontAwesome.Sharp.IconButton();
             _forwardButton = new FontAwesome.Sharp.IconButton();
+            _swapButton = new ToggleSwitch();
             ((System.ComponentModel.ISupportInitialize)_delaySlider).BeginInit();
             SuspendLayout();
             // 
@@ -124,11 +125,24 @@
             _forwardButton.Text = "iconButton1";
             _forwardButton.UseVisualStyleBackColor = true;
             // 
+            // _swapButton
+            // 
+            _swapButton.BackColor = Color.Transparent;
+            _swapButton.Font = new Font("맑은 고딕", 9F, FontStyle.Regular, GraphicsUnit.Point, 129);
+            _swapButton.Location = new Point(93, 147);
+            _swapButton.Name = "_swapButton";
+            _swapButton.OffColor = Color.FromArgb(160, 160, 160);
+            _swapButton.Size = new Size(158, 30);
+            _swapButton.TabIndex = 12;
+            _swapButton.Text = "toggleSwitch1";
+            _swapButton.TextFont = new Font("맑은 고딕", 9F);
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
+            Controls.Add(_swapButton);
             Controls.Add(_forwardButton);
             Controls.Add(_pauseButton);
             Controls.Add(_backwardButton);
@@ -155,5 +169,6 @@
         private FontAwesome.Sharp.IconButton _backwardButton;
         private FontAwesome.Sharp.IconButton _pauseButton;
         private FontAwesome.Sharp.IconButton _forwardButton;
+        private ToggleSwitch _swapButton;
     }
 }

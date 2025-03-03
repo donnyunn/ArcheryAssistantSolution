@@ -52,7 +52,7 @@ namespace MultiWebcamApp
             // 종료 버튼 속성
             _closeButton.Location = new Point(x, y);
             _closeButton.Size = new Size(width, height);
-            _closeButton.Font = new Font("궁서체", 50);
+            _closeButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
             _closeButton.BackColor = Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
             _closeButton.Text = "종료";
@@ -63,7 +63,7 @@ namespace MultiWebcamApp
             // 지연 시간 트랙바 속성
             _delayTextbox.Location = new Point(x + margin / 2, y + margin / 2);
             _delayTextbox.Size = new Size(margin * 2, margin);
-            _delayTextbox.Font = new Font("Arial", margin);
+            _delayTextbox.Font = new Font("Calibri", margin, FontStyle.Bold);
             _delayTextbox.TextAlign = HorizontalAlignment.Center;
             _delayTextbox.BackColor = Color.Black;
             _delayTextbox.ForeColor = Color.Red;
@@ -84,7 +84,7 @@ namespace MultiWebcamApp
             // 시작버튼 속성
             _startButton.Location = new Point(x, y);
             _startButton.Size = new Size(width, height);
-            _startButton.Font = new Font("궁서체", 50);
+            _startButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
             _startButton.BackColor = Color.LightGray;
             _startButton.TextAlign = ContentAlignment.MiddleCenter;
             _startButton.Text = "시작";
@@ -148,11 +148,25 @@ namespace MultiWebcamApp
             // 슬로우모드 버튼
             _slowButton.Location = new Point(x, y);
             _slowButton.Size = new Size(width, height);
-            _slowButton.Font = new Font("궁서체", 50);
+            _slowButton.Font = new Font("Calibri", 50, FontStyle.Bold);
             _slowButton.BackColor = Color.LightGray;
             _slowButton.TextAlign= ContentAlignment.MiddleCenter;
             _slowButton.Text = "Slow";
             _slowButton.Click += new EventHandler(SlowButton_Click);
+
+            // 스왑 버튼
+            //x = margin + width + margin;
+            y = y + height + margin;
+            width = 120;
+            height = 30;
+            _swapButton.Location = new Point(x, y);
+            _swapButton.Size = new Size(width, height);
+            _swapButton.OnColor = Color.Red;
+            _swapButton.OnText = "녹화켜짐";
+            _swapButton.OffText = "녹화꺼짐";
+            _swapButton.TextFont = new Font("맑은 고딕", 24, FontStyle.Bold);
+            _swapButton.CheckedChanged += new EventHandler(RecordButton_Checked);
+            _swapButton.Enabled = false;
 
             // 버튼 타이머
             _backwardTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -267,7 +281,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private async void MainForm_Load(object sender, EventArgs e)
+        private void MainForm_Load(object sender, EventArgs e)
         {
             _webcamFormHead = new WebcamForm(0);
             _webcamFormBody = new WebcamForm(1);
@@ -326,7 +340,7 @@ namespace MultiWebcamApp
             _webcamFormBody.SetDelay(_delaySeconds);
         }
 
-        private void StartButton_Click(object sender, EventArgs e)
+        private void StartButton_Click(object? sender, EventArgs e)
         {
             _mainStopwatch.Restart();
             _isStarted = !_isStarted;
@@ -345,7 +359,7 @@ namespace MultiWebcamApp
             _webcamFormBody.SetKey("r");
         }
 
-        private void BackwardButton_Click(Object sender, EventArgs e)
+        private void BackwardButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted)
             {
@@ -356,7 +370,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void PauseButton_Click(Object sender, EventArgs e)
+        private void PauseButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted)
             {
@@ -367,7 +381,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void ForwardButton_Click(Object sender, EventArgs e)
+        private void ForwardButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted)
             {
@@ -378,7 +392,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void SlowButton_Click(Object sender, EventArgs e)
+        private void SlowButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted)
             {
@@ -387,6 +401,11 @@ namespace MultiWebcamApp
                 _webcamFormHead.SetKey("s");
                 _webcamFormBody.SetKey("s");
             }
+        }
+
+        private void RecordButton_Checked(Object? sender, EventArgs e)
+        {
+            Console.WriteLine($"{_swapButton.Checked}");
         }
 
         private void UpdatePlayPauseButton()
