@@ -1,16 +1,16 @@
 ﻿using System;
-using System.IO.Ports;
 using System.Linq;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Documents;
+using RJCP.IO.Ports;
 
 namespace MultiWebcamApp
 {
     public class FootpadDevice
     {
-        public SerialPort Port {  get; private set; }
+        public SerialPortStream Port {  get; private set; }
         public int QuadrantIndex { get; private set; }
         public ushort[] LastData { get; private set; }
         private static readonly byte[] RequestPacket = new byte[] { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
@@ -27,7 +27,7 @@ namespace MultiWebcamApp
         {
             try
             {
-                Port = new SerialPort(portName, 3000000, Parity.None, 8, StopBits.One)
+                Port = new SerialPortStream(portName, 3000000, 8, Parity.None, StopBits.One)
                 {
                     ReadTimeout = 100,
                     WriteTimeout = 100,
@@ -282,10 +282,12 @@ namespace MultiWebcamApp
 
         private void InitializeDevices()
         {
-            var ports = SerialPort.GetPortNames()
-                .Where(p => p != "COM1")
-                .OrderBy(p => p)
-                .ToList();
+            //var ports = SerialPort.GetPortNames()
+            //    .Where(p => p != "COM1")
+            //    .OrderBy(p => p)
+            //    .ToList();
+            string[] port = { "COM4", "COM5", "COM6", "COM7" };
+            var ports = port.ToList();
 
             // 최대 4개의 포트만 사용
             for (int i = 0; i < Math.Min(4, ports.Count); i++)
@@ -371,6 +373,74 @@ namespace MultiWebcamApp
             {
                 isRunning = false;
                 //_renderTimer.Stop();
+            }
+
+            return ret;
+        }
+
+        // FootpadForm 클래스 내에 추가할 메소드
+        public bool UpdateFrameAll()
+        {
+            bool ret = false;
+            if (isRunning) return ret;
+            _renderTimer.Start();
+            isRunning = true;
+
+            try
+            {
+                bool dataUpdated = false;
+
+                // 모든 사분면을 순차적으로 처리
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    if (!devices.ContainsKey(quadrant))
+                        continue;
+
+                    var device = devices[quadrant];
+
+                    // 현재 사분면 데이터 수집
+                    bool deviceHasData = device.RequestAndReceiveData();
+
+                    if (deviceHasData)
+                    {
+                        // 현재 사분면의 위치 계산
+                        int baseRow = (quadrant / 2) * 48;
+                        int baseCol = (quadrant % 2) * 48;
+                        var deviceData = device.LastData;
+
+                        // 해당 사분면 영역 업데이트
+                        for (int i = 0; i < 48; i++)
+                        {
+                            for (int j = 0; j < 48; j++)
+                            {
+                                combinedData[(baseRow + i) * 96 + (baseCol + j)] = deviceData[i * 48 + j];
+                            }
+                        }
+
+                        dataUpdated = true;
+                    }
+                }
+
+                // 데이터가 업데이트되었으면 UI 갱신
+                if (dataUpdated)
+                {
+                    // UI 업데이트
+                    pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        pressureMapWindow.UpdatePressureData(combinedData);
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+
+                    ret = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating all frames: {ex.Message}");
+                ret = false;
+            }
+            finally
+            {
+                isRunning = false;
             }
 
             return ret;
