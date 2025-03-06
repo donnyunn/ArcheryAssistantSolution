@@ -8,14 +8,15 @@ using FontAwesome.Sharp;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Multimedia;
 
 namespace MultiWebcamApp
 {
     public partial class MainForm : Form
     {
-        private WebcamForm _webcamFormHead;// = new WebcamForm(0);
-        private WebcamForm _webcamFormBody;// = new WebcamForm(1);
-        private FootpadForm _footpadForm;// = new FootpadForm();
+        private WebcamForm _webcamFormHead;
+        private WebcamForm _webcamFormBody;
+        private FootpadForm _footpadForm;
         private int _delaySeconds = 0; 
         private bool _isStarted = false;
         private bool _isPaused = false;
@@ -26,7 +27,15 @@ namespace MultiWebcamApp
         private System.Windows.Forms.Timer _backwardInitialTimer;
         private System.Windows.Forms.Timer _forwardInitialTimer;
 
-        private CancellationTokenSource? _cancellationTokenSource;
+        // 멀티미디어 타이머 추가
+        private Multimedia.Timer _frameTimer;
+        private bool _isProcessing = false;
+        private long _frameCount = 0;
+        private long _lastFpsCheck = 0;
+
+        // 프레임 레이트 설정
+        private const int TARGET_FPS = 60;
+        private readonly int _frameTimeMs;
 
         private readonly Stopwatch _mainStopwatch = new Stopwatch();
 
@@ -34,8 +43,78 @@ namespace MultiWebcamApp
         {
             InitializeComponent();
             InitializeCustomControls();
+
+            // 프레임 시간 계산 (밀리초)
+            _frameTimeMs = (int)(1000.0 / TARGET_FPS);
+
+            // 멀티미디어 타이머 초기화
+            InitializeMultimediaTimer();
+
             _mainStopwatch.Start();
         }
+
+        // 멀티미디어 타이머 초기화 메서드
+        private void InitializeMultimediaTimer()
+        {
+            _frameTimer = new Multimedia.Timer();
+            _frameTimer.Period = _frameTimeMs+1;   // 예: 60fps에 해당하는 16.67ms
+            _frameTimer.Resolution = 1;          // 최고 해상도
+            _frameTimer.Mode = TimerMode.Periodic;
+            _frameTimer.SynchronizingObject = this;  // UI 스레드와 동기화
+
+            // 타이머 이벤트 핸들러 등록
+            _frameTimer.Tick += new EventHandler(FrameTimer_Tick);
+        }
+
+        // 타이머 이벤트 핸들러
+        private void FrameTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_isProcessing || _cancellationTokenSource == null || _cancellationTokenSource.IsCancellationRequested)
+                return;
+
+            _isProcessing = true;
+            try
+            {
+                long frameStartTime = _mainStopwatch.ElapsedMilliseconds;
+
+                // 프레임 처리
+                if (_frameCount % 2 == 0)
+                {
+                    _ = Task.WhenAll(
+                        Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                        Task.Run(() => _webcamFormBody.work(frameStartTime)),
+                        Task.Run(() => _footpadForm.UpdateFrame())
+                    );
+                }
+                else
+                {
+                    _ = Task.WhenAll(
+                        Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                        Task.Run(() => _webcamFormBody.work(frameStartTime))
+                    );
+                }
+
+                _frameCount++;
+
+                // FPS 계산
+                if (frameStartTime - _lastFpsCheck >= 1000)
+                {
+                    Console.WriteLine($"Camera FPS: {_frameCount}");
+                    _frameCount = 0;
+                    _lastFpsCheck = frameStartTime;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
+            finally
+            {
+                _isProcessing = false;
+            }
+        }
+
+        private CancellationTokenSource? _cancellationTokenSource;
 
         private void InitializeCustomControls()
         {
@@ -218,67 +297,13 @@ namespace MultiWebcamApp
             _forwardTimer.Start();
         }
 
-        private async void InitializeProcess()
+        private void InitializeProcess()
         {
             _cancellationTokenSource = new CancellationTokenSource();
-            await Task.Run(() => Process(_cancellationTokenSource.Token));
-        }
-
-        private async Task Process(CancellationToken token)
-        {
-            const double targetFrameTime = 1000.0 / 60.0;
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
-
-            long frameCount = 0;
-            long lastFpsCheck = 0;
 
             Task.Delay(1500).Wait();
-
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    long frameStartTime = stopwatch.ElapsedMilliseconds;
-
-                    if (frameCount % 2 == 0)
-                    {
-                        _ = Task.WhenAll(
-                            Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                            Task.Run(() => _webcamFormBody.work(frameStartTime)),
-                            Task.Run(() => _footpadForm.UpdateFrame())
-                        );
-                    } else
-                    {
-                        _ = Task.WhenAll(
-                            Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                            Task.Run(() => _webcamFormBody.work(frameStartTime))
-                        );
-                    }
-
-                    frameCount++;
-
-                    if (frameStartTime - lastFpsCheck >= 1000)
-                    {
-                        Console.WriteLine($"Camera FPS: {frameCount}");
-                        frameCount = 0;
-                        lastFpsCheck = frameStartTime;
-                    }
-
-                    // 다음 프레임까지 남은 시간 계산
-                    long elapsedTime = stopwatch.ElapsedMilliseconds - frameStartTime;
-                    int delayTime = (int)Math.Max(0, targetFrameTime - elapsedTime);
-
-                    if (delayTime > 0)
-                    {
-                        await Task.Delay(delayTime, token);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.ToString());
-                }
-            }
+            // 멀티미디어 타이머 시작
+            _frameTimer.Start();
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -416,6 +441,14 @@ namespace MultiWebcamApp
         private void CloseButton_Click(object sender, EventArgs e)
         {
             _cancellationTokenSource?.Cancel();
+
+            // 멀티미디어 타이머 중지 및 정리
+            if (_frameTimer != null && _frameTimer.IsRunning)
+            {
+                _frameTimer.Stop();
+                _frameTimer.Dispose();
+            }
+
             Task.Delay(1000);
             _webcamFormHead.Close();
             _webcamFormBody.Close();
@@ -424,6 +457,13 @@ namespace MultiWebcamApp
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            // 멀티미디어 타이머 정리
+            if (_frameTimer != null && _frameTimer.IsRunning)
+            {
+                _frameTimer.Stop();
+                _frameTimer.Dispose();
+            }
+
             base.OnFormClosed(e);
 
             _webcamFormHead.Close();
