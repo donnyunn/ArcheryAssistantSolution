@@ -373,11 +373,13 @@ namespace MultiWebcamApp
             {
                 _startButton.Text = "대기";
                 _isPaused = false;
+                _delaySlider.Enabled = false;
             }
             else
             {
                 _startButton.Text = "시작";
                 _isPaused = true;
+                _delaySlider.Enabled = true;
             }
             UpdatePlayPauseButton();
             _webcamFormHead.SetKey("r");

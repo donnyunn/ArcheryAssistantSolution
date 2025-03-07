@@ -286,7 +286,7 @@ namespace MultiWebcamApp
             //    .Where(p => p != "COM1")
             //    .OrderBy(p => p)
             //    .ToList();
-            string[] port = { "COM4", "COM5", "COM6", "COM7" };
+            string[] port = { "COM7", "COM9", "COM8", "COM10" };
             var ports = port.ToList();
 
             // 최대 4개의 포트만 사용
@@ -406,14 +406,66 @@ namespace MultiWebcamApp
                         // 현재 사분면의 위치 계산
                         int baseRow = (quadrant / 2) * 48;
                         int baseCol = (quadrant % 2) * 48;
-                        var deviceData = device.LastData;
+                        var deviceData = device.LastData; 
+                        int quadrantSize = 48;
 
-                        // 해당 사분면 영역 업데이트
-                        for (int i = 0; i < 48; i++)
+                        // 해당 사분면 영역 업데이트 (회전 및 대칭 적용)
+                        for (int i = 0; i < quadrantSize; i++)
                         {
-                            for (int j = 0; j < 48; j++)
+                            for (int j = 0; j < quadrantSize; j++)
                             {
-                                combinedData[(baseRow + i) * 96 + (baseCol + j)] = deviceData[i * 48 + j];
+                                // 원본 데이터의 인덱스
+                                int originalIndex = i * quadrantSize + j;
+
+                                // 회전 및 대칭이 적용된 인덱스 계산
+                                int transformedI, transformedJ;
+
+                                switch (quadrant)
+                                {
+                                    case 0: // 1사분면: +90도 회전 + Y축 대칭 (왼쪽 상단)
+                                            // 먼저 +90도 회전
+                                        transformedI = j;
+                                        transformedJ = quadrantSize - 1 - i;
+
+                                        // 그다음 Y축 대칭 (사분면 중앙 세로선 기준)
+                                        transformedJ = quadrantSize - 1 - transformedJ;
+                                        break;
+
+                                    case 1: // 2사분면: -90도 회전 + Y축 대칭 (오른쪽 상단)
+                                            // 먼저 -90도 회전
+                                        transformedI = quadrantSize - 1 - j;
+                                        transformedJ = i;
+
+                                        // 그다음 Y축 대칭 (사분면 중앙 세로선 기준)
+                                        transformedJ = quadrantSize - 1 - transformedJ;
+                                        break;
+
+                                    case 2: // 3사분면: +90도 회전 + X축 대칭 (왼쪽 하단)
+                                            // 먼저 +90도 회전
+                                        transformedI = j;
+                                        transformedJ = quadrantSize - 1 - i;
+
+                                        // 그다음 X축 대칭 (사분면 중앙 가로선 기준)
+                                        transformedI = quadrantSize - 1 - transformedI;
+                                        break;
+
+                                    case 3: // 4사분면: -90도 회전 + X축 대칭 (오른쪽 하단)
+                                            // 먼저 -90도 회전
+                                        transformedI = quadrantSize - 1 - j;
+                                        transformedJ = i;
+
+                                        // 그다음 X축 대칭 (사분면 중앙 가로선 기준)
+                                        transformedI = quadrantSize - 1 - transformedI;
+                                        break;
+
+                                    default:
+                                        transformedI = i;
+                                        transformedJ = j;
+                                        break;
+                                }
+
+                                // 변환된 데이터를 combinedData에 배치
+                                combinedData[(baseRow + transformedI) * 96 + (baseCol + transformedJ)] = deviceData[originalIndex];
                             }
                         }
 
