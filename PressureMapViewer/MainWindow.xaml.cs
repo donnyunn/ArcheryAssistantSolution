@@ -72,7 +72,7 @@ namespace PressureMapViewer
         private const double GRID_SPACING = 0.2; // 격자 간격
 
         // 밸런스 게이지 관련
-        private const double WEIGHT_THRESHOLD = 2.0; // 유효 압력 임계값
+        private const double WEIGHT_THRESHOLD = 15.0; // 유효 압력 임계값
         private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
 
         // 시계열 그래프 관련
@@ -259,12 +259,12 @@ namespace PressureMapViewer
 
             for (int i = 0; i < data.Length; i++)
             {
-                double pressure = data[i] * PRESSURE_SCALING_FACTOR;
+                double pressure = data[i];
 
                 // 노이즈 간주
                 if (pressure > WEIGHT_THRESHOLD)
                 {
-                    double force = pressure * CELL_AREA; // 힘(N) = 압력(pa) * 면적(m2)
+                    double force = pressure * PRESSURE_SCALING_FACTOR * CELL_AREA; // 힘(N) = 압력(pa) * 면적(m2)
                     totalForce += force;
                     totalActiveCells++;
                 }
@@ -277,16 +277,16 @@ namespace PressureMapViewer
 
         private void UpdateWeightDisplay(double weight, double activeCells)
         {
-            //if (weight < 0.5)
-            //{
-            //    WeightValueText.Text = "측정 대기 중";
-            //    ActiveCellsText.Text = "-";
-            //}
-            //else
-            //{
+            if (activeCells < 1)
+            {
+                WeightValueText.Text = "- kg";
+                ActiveCellsText.Text = "-";
+            }
+            else
+            {
                 WeightValueText.Text = $"{Math.Round(weight, 1)} kg";
-                ActiveCellsText.Text = $"{Math.Round(activeCells)} 셀";
-            //}
+                ActiveCellsText.Text = $"{Math.Round(activeCells)}";
+            }
         }
 
         // 차트 업데이트 메서드
@@ -710,16 +710,57 @@ namespace PressureMapViewer
             double rightForefootPressure = 0;
             double rightHeelPressure = 0;
 
+            // 무게중심 계산을 위한 변수
+            double leftWeightedY = 0;
+            double rightWeightedY = 0;
+
+            // 각 발의 Y 좌표 범위 추적
+            int leftMinY = SENSOR_SIZE;
+            int leftMaxY = 0;
+            int rightMinY = SENSOR_SIZE;
+            int rightMaxY = 0;
+
+            // 유효한 셀 카운트
+            int validCellCount = 0;
+            int leftValidCells = 0;
+            int rightValidCells = 0;
+
             // 발 중앙선 (왼쪽/오른쪽 구분)
             int centerX = SENSOR_SIZE / 2;
-            // 발 중앙선 (앞쪽/뒤쪽 구분) - 일반적으로 전체 길이의 40~60% 지점
-            int centerY = SENSOR_SIZE / 2;
 
-            // 무게중심이 계산되었다면 사용
-            if (centerOfPressure.X > 0 && centerOfPressure.Y > 0)
+            // 먼저 유효한 압력 셀만 계산하여 총 압력 확인
+            for (int y = 0; y < SENSOR_SIZE; y++)
             {
-                centerX = (int)footCenter.X; // 발의 가로 중심선
-                centerY = (int)footCenter.Y; // 발의 세로 중심선
+                for (int x = 0; x < SENSOR_SIZE; x++)
+                {
+                    double pressure = data[y * SENSOR_SIZE + x];
+
+                    if (pressure < WEIGHT_THRESHOLD) // 너무 작은 값은 무시
+                        continue;
+
+                    totalPressure += pressure;
+                    validCellCount++;
+
+                    // 각 발의 Y 범위 추적
+                    if (x < centerX) // 왼발
+                    {
+                        leftMinY = Math.Min(leftMinY, y);
+                        leftMaxY = Math.Max(leftMaxY, y);
+                    }
+                    else // 오른발
+                    {
+                        rightMinY = Math.Min(rightMinY, y);
+                        rightMaxY = Math.Max(rightMaxY, y);
+                    }
+                }
+            }
+
+            // 총 압력이 너무 낮으면 (발판에 아무도 서있지 않음) 처리하지 않고 종료
+            const double MIN_TOTAL_PRESSURE = 1000;
+            if (totalPressure < MIN_TOTAL_PRESSURE || validCellCount < 10)
+            {
+                // 현재 값 유지 (갑작스러운 변화 방지)
+                return;
             }
 
             // 좌우, 전후 압력 계산
@@ -732,15 +773,15 @@ namespace PressureMapViewer
                     if (pressure < WEIGHT_THRESHOLD) // 너무 작은 값은 무시
                         continue;
 
-                    totalPressure += pressure;
-
                     // 좌우 분리
                     if (x < centerX)
                     {
                         leftPressure += pressure;
+                        leftWeightedY += y * pressure; // 왼발 무게중심 Y 계산을 위한 가중치 합
+                        leftValidCells++;
 
                         // 왼쪽 발의 앞/뒤 구분
-                        if (y < centerY)
+                        if (y < SENSOR_SIZE / 2)
                         {
                             leftForefootPressure += pressure; // 왼쪽-앞
                         }
@@ -752,9 +793,11 @@ namespace PressureMapViewer
                     else
                     {
                         rightPressure += pressure;
+                        rightWeightedY += y * pressure; // 오른발 무게중심 Y 계산을 위한 가중치 합
+                        rightValidCells++;
 
                         // 오른쪽 발의 앞/뒤 구분
-                        if (y < centerY)
+                        if (y < SENSOR_SIZE / 2)
                         {
                             rightForefootPressure += pressure; // 오른쪽-앞
                         }
@@ -765,7 +808,7 @@ namespace PressureMapViewer
                     }
 
                     // 전후 분리
-                    if (y < centerY)
+                    if (y < SENSOR_SIZE / 2)
                     {
                         forefootPressure += pressure; // 앞쪽 (forefoot)
                     }
@@ -776,66 +819,89 @@ namespace PressureMapViewer
                 }
             }
 
+            // 각 발의 길이 계산 (유효 셀이 존재하는 범위)
+            int leftFootLength = leftMaxY - leftMinY + 1;
+            int rightFootLength = rightMaxY - rightMinY + 1;
+
+            // leftFootLength나 rightFootLength가 너무 작은 경우 기본값 사용
+            leftFootLength = Math.Max(leftFootLength, 10); // 최소 10 픽셀
+            rightFootLength = Math.Max(rightFootLength, 10); // 최소 10 픽셀
+
+            // 백분율 계산 (좌우 밸런스) - 합이 100%가 되도록 수정
             if (totalPressure > 0)
             {
-                // 백분율 계산
                 leftPercent = (leftPressure / totalPressure) * 100;
-                rightPercent = (rightPressure / totalPressure) * 100;
-                forefootPercent = (forefootPressure / totalPressure) * 100;
-                heelPercent = (heelPressure / totalPressure) * 100;
-
-                // 각 발의 앞/뒤 균형 백분율 계산
-                double leftTotalPressure = leftPressure;
-                if (leftTotalPressure > 0)
-                {
-                    leftForefootPercent = (leftForefootPressure / leftTotalPressure) * 100;
-                    leftHeelPercent = (leftHeelPressure / leftTotalPressure) * 100;
-                }
-                else
-                {
-                    leftForefootPercent = 0;
-                    leftHeelPercent = 0;
-                }
-
-                double rightTotalPressure = rightPressure;
-                if (rightTotalPressure > 0)
-                {
-                    rightForefootPercent = (rightForefootPressure / rightTotalPressure) * 100;
-                    rightHeelPercent = (rightHeelPressure / rightTotalPressure) * 100;
-                }
-                else
-                {
-                    rightForefootPercent = 0;
-                    rightHeelPercent = 0;
-                }
-
-                // 애니메이션 없이 게이지 높이/너비 직접 설정
-                double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;
-                double maxWidth = ForefootGauge.Parent is FrameworkElement frontParent ? frontParent.ActualWidth / 2 : 400;
-
-                // 왼쪽 게이지 업데이트
-                LeftGauge.Height = maxHeight * leftForefootPercent / 100;
-                LeftPercentText.Text = $"{Math.Round(leftForefootPercent)}%";
-
-                // 오른쪽 게이지 업데이트
-                RightGauge.Height = maxHeight * rightForefootPercent / 100;
-                RightPercentText.Text = $"{Math.Round(rightForefootPercent)}%";
-
-                // 앞쪽 게이지 업데이트
-                ForefootGauge.Width = maxWidth * leftPercent / 100;
-                ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
-
-                // 뒤쪽 게이지 업데이트
-                HeelGauge.Width = maxWidth * rightPercent / 100;
-                HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
-
-                // 하단 좌우 균형 텍스트 업데이트
-                LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
-                RightBalanceText.Text = $"{Math.Round(rightPercent)}";
-
-                // 게이지 색상 업데이트 (편향성에 따라)
-                UpdateGaugeColors(leftForefootPercent, rightForefootPercent, leftPercent, rightPercent);
+                rightPercent = 100 - leftPercent; // 합이 100%가 되도록
             }
+            else
+            {
+                leftPercent = 50;
+                rightPercent = 50;
+            }
+
+            // 각 발의 앞/뒤 무게중심 비율 계산 (각 발의 실제 Y 범위에 대한 상대적 위치)
+            if (leftValidCells > 0 && leftPressure > 0)
+            {
+                // 왼쪽 발의, 세로 방향 무게중심 위치
+                double leftCenterY = leftWeightedY / leftPressure;
+
+                // 해당 발 내에서의 상대적 위치 계산
+                double relativeLeftCenterY = leftCenterY - leftMinY;
+
+                // 무게중심의 상대적 위치를 백분율로 변환 (0%: 가장 위, 100%: 가장 아래)
+                leftForefootPercent = (relativeLeftCenterY / leftFootLength) * 100;
+                leftHeelPercent = 100 - leftForefootPercent;
+            }
+            else
+            {
+                leftForefootPercent = 50;
+                leftHeelPercent = 50;
+            }
+
+            if (rightValidCells > 0 && rightPressure > 0)
+            {
+                // 오른쪽 발의, 세로 방향 무게중심 위치
+                double rightCenterY = rightWeightedY / rightPressure;
+
+                // 해당 발 내에서의 상대적 위치 계산
+                double relativeRightCenterY = rightCenterY - rightMinY;
+
+                // 무게중심의 상대적 위치를 백분율로 변환 (0%: 가장 위, 100%: 가장 아래)
+                rightForefootPercent = (relativeRightCenterY / rightFootLength) * 100;
+                rightHeelPercent = 100 - rightForefootPercent;
+            }
+            else
+            {
+                rightForefootPercent = 50;
+                rightHeelPercent = 50;
+            }
+
+            // 애니메이션 없이 게이지 높이/너비 직접 설정
+            double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;
+            double maxWidth = ForefootGauge.Parent is FrameworkElement frontParent ? frontParent.ActualWidth / 2 : 400;
+
+            // 왼쪽 게이지 업데이트 - 무게중심 기준으로 표시
+            LeftGauge.Height = maxHeight * (100 - leftForefootPercent) / 100; // 위쪽이 0%, 아래쪽이 100%
+            LeftPercentText.Text = $"{Math.Round(leftHeelPercent)}%";
+
+            // 오른쪽 게이지 업데이트 - 무게중심 기준으로 표시
+            RightGauge.Height = maxHeight * (100 - rightForefootPercent) / 100; // 위쪽이 0%, 아래쪽이 100%
+            RightPercentText.Text = $"{Math.Round(rightHeelPercent)}%";
+
+            // 앞쪽 게이지 업데이트
+            ForefootGauge.Width = maxWidth * leftPercent / 100;
+            ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
+
+            // 뒤쪽 게이지 업데이트
+            HeelGauge.Width = maxWidth * rightPercent / 100;
+            HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
+
+            // 하단 좌우 균형 텍스트 업데이트
+            LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
+            RightBalanceText.Text = $"{Math.Round(rightPercent)}";
+
+            // 게이지 색상 업데이트 (편향성에 따라)
+            UpdateGaugeColors(leftForefootPercent, rightForefootPercent, leftPercent, rightPercent);
         }
 
         private void UpdateGaugeColors(double leftPercent, double rightPercent,
