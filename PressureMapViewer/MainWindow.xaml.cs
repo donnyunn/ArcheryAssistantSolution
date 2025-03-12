@@ -236,11 +236,11 @@ namespace PressureMapViewer
                     }
 
                     // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
-                    if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
-                    {
-                        Update3D(_latestData);
-                        UpdateGrid(_latestData);
-                    }
+                    //if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
+                    //{
+                    //    Update3D(_latestData);
+                    //    UpdateGrid(_latestData);
+                    //}
                 }
                 catch (Exception ex)
                 {

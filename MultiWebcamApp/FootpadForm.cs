@@ -5,12 +5,510 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Documents;
 using RJCP.IO.Ports;
+using System.Globalization;
 
 namespace MultiWebcamApp
 {
+    public partial class FootpadForm : Form
+    {
+        private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
+        private PressureMapViewer.MainWindow pressureMapWindow;
+        private readonly object dataLock = new object();
+        private bool isRunning = false;
+        private Calibration calibration;
+
+        private System.Windows.Forms.Timer _renderTimer;
+
+        public FootpadForm()
+        {
+            InitializeComponent();
+            InitializeDevices();
+
+            calibration = new Calibration();
+
+            _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _renderTimer.Tick += (s, e) => renderTick(s, e);
+            _renderTimer.Start();
+        }
+
+        private void renderTick(Object? sender, EventArgs e)
+        {
+            if (isRunning)
+            {
+                isRunning = false;
+            }
+        }
+
+        private void InitializeDevices()
+        {
+            // 제조사 가이드에 따른 COM 포트 배치
+            // 1사분면(좌측 상단): COM3 -> 장치 인덱스 0
+            // 2사분면(좌측 하단): COM4 -> 장치 인덱스 1
+            // 3사분면(우측 상단): COM5 -> 장치 인덱스 2
+            // 4사분면(우측 하단): COM6 -> 장치 인덱스 3
+            string[] portNames = { "COM3", "COM4", "COM5", "COM6" };
+
+            // 각 포트에 해당하는 사분면 인덱스를 초기화
+            for (int i = 0; i < portNames.Length; i++)
+            {
+                try
+                {
+                    devices[i] = new FootpadDevice(portNames[i], i);
+                    Console.WriteLine($"초기화 성공: 사분면 {i + 1} - {portNames[i]}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"초기화 실패: 사분면 {i + 1} - {portNames[i]}: {ex.Message}");
+                }
+            }
+        }
+
+        private void FootpadForm_Load(object sender, EventArgs e)
+        {
+            pressureMapWindow = new PressureMapViewer.MainWindow();
+
+            Screen currentScreen = Screen.FromControl(this);
+            Rectangle screenBounds = currentScreen.Bounds;
+
+            pressureMapWindow.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
+            pressureMapWindow.WindowStyle = System.Windows.WindowStyle.None;
+            pressureMapWindow.ResizeMode = System.Windows.ResizeMode.NoResize;
+
+            pressureMapWindow.Left = screenBounds.Left;
+            pressureMapWindow.Top = screenBounds.Top;
+            pressureMapWindow.Width = screenBounds.Width;
+            pressureMapWindow.Height = screenBounds.Height;
+            
+            pressureMapWindow.Show();
+        }
+
+        private ushort[] combinedData = new ushort[9216]; // 96 * 96
+        private int lastProcessedQuadrant = 3;
+        public bool UpdateFrame()
+        {
+            bool ret = false;
+            if (isRunning) return ret;
+            _renderTimer.Start();
+            isRunning = true;
+
+            try
+            {
+                // 순환식으로 사분면 선택 (0->1->2->3->0->...)
+                int currentQuadrant = (lastProcessedQuadrant + 1) % 4;
+                lastProcessedQuadrant = currentQuadrant;
+
+                // 선택된 사분면만 처리
+                if (devices.ContainsKey(currentQuadrant))
+                {
+                    var device = devices[currentQuadrant];
+
+                    // 현재 사분면 데이터 수집
+                    bool deviceHasData = device.RequestAndReceiveData();
+
+                    if (deviceHasData)
+                    {
+                        // 현재 사분면의 위치 계산
+                        int baseRow = (currentQuadrant / 2) * 48;
+                        int baseCol = (currentQuadrant % 2) * 48;
+                        var deviceData = device.LastData;
+
+                        // 해당 사분면 영역만 업데이트
+                        for (int i = 0; i < 48; i++)
+                        {
+                            for (int j = 0; j < 48; j++)
+                            {
+                                combinedData[(baseRow + i) * 96 + (baseCol + j)] = deviceData[i * 48 + j];
+                            }
+                        }
+
+                        // UI 업데이트
+                        pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            pressureMapWindow.UpdatePressureData(combinedData);
+                        }), System.Windows.Threading.DispatcherPriority.Background);
+
+                        ret = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating frame: {ex.Message}");
+                ret = false;
+            }
+            finally
+            {
+                isRunning = false;
+                //_renderTimer.Stop();
+            }
+
+            return ret;
+        }
+
+        // FootpadForm 클래스 내에 추가할 메소드
+        public bool UpdateFrameAll()
+        {
+            bool ret = false;
+            if (isRunning) return ret;
+            _renderTimer.Start();
+            isRunning = true;
+
+            try
+            {
+                bool dataUpdated = false;
+
+                // 사분면 데이터를 처리하기 위한 맵핑 정의
+                // 제조사 가이드에 따라: 
+                // - COM3(index 0)은 1사분면(좌측 상단)
+                // - COM5(index 1)은 2사분면(좌측 하단)
+                // - COM4(index 2)은 3사분면(우측 상단)
+                // - COM6(index 3)은 4사분면(우측 하단)
+                int[] quadrantToIndex = { 0, 1, 2, 3 };
+
+                // 96x96 combined 맵에서 각 사분면의 시작 위치 정의
+                Point[] startPositions = new Point[] {
+                    new Point(0, 0),      // 1사분면: 좌측 상단 (0,0)
+                    new Point(0, 48),     // 2사분면: 좌측 하단 (0,48)
+                    new Point(48, 0),     // 3사분면: 우측 상단 (48,0)
+                    new Point(48, 48)     // 4사분면: 우측 하단 (48,48)
+                };
+
+                // 모든 사분면을 순차적으로 처리
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    int deviceIndex = quadrantToIndex[quadrant];
+                    if (!devices.ContainsKey(deviceIndex))
+                        continue;
+
+                    var device = devices[deviceIndex];
+
+                    // 현재 사분면 데이터 수집
+                    bool deviceHasData = device.RequestAndReceiveData();
+
+                    if (deviceHasData)
+                    {
+                        //var deviceData = device.LastData;
+                        var deviceData = calibration.Work(device.LastData, quadrant);
+                        Point startPos = startPositions[quadrant];
+
+                        // 48x48 사분면 데이터를 96x96 combinedData에 복사
+                        // 세로로 먼저 증가(위에서 아래로), 그 다음 가로 방향으로 이동
+                        for (int col = 0; col < 48; col++)
+                        {
+                            for (int row = 0; row < 48; row++)
+                            {
+                                // 디바이스 데이터의 인덱스
+                                // 세로 방향이 먼저 증가하고, 그 다음 가로 방향으로 이동
+                                int index = col * 48 + row;
+
+                                // combinedData의 인덱스 계산
+                                int combinedRow = startPos.Y + row;
+                                int combinedCol = startPos.X + col;
+                                int combinedIndex = combinedRow * 96 + combinedCol;
+
+                                // 데이터 복사
+                                combinedData[combinedIndex] = deviceData[index];
+                            }
+                        }
+
+                        dataUpdated = true;
+                    }
+                }
+
+
+                // 데이터가 업데이트되었으면 UI 갱신
+                if (dataUpdated)
+                {
+                    // UI 업데이트
+                    pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        pressureMapWindow.UpdatePressureData(combinedData);
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+
+                    ret = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating all frames: {ex.Message}");
+                ret = false;
+            }
+            finally
+            {
+                isRunning = false;
+            }
+
+            return ret;
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            isRunning = false;
+            foreach (var device in devices.Values)
+            {
+                device.Close();
+            }
+            base.OnFormClosed(e);
+        }
+    }
+
+    public class Calibration
+    {
+        private Dictionary<int, Dictionary<int, List<CalibrationRange>>> calibrationFactors;
+        private readonly object lockObject = new object();
+        private bool isInitialized = false;
+
+        private class CalibrationRange
+        {
+            public float AdcThreshold { get; set; }
+            public float Slope { get; set; }
+            public float Intercept { get; set; }
+        }
+
+        public Calibration()
+        {
+            LoadCalibrationFiles();
+        }
+
+        private void LoadCalibrationFiles()
+        {
+            lock (lockObject)
+            {
+                try
+                {
+                    calibrationFactors = new Dictionary<int, Dictionary<int, List<CalibrationRange>>>();
+
+                    // 각 사분면에 대한 보정 파일 로드 (1.csv, 2.csv, 3.csv, 4.csv)
+                    for (int quadrant = 0; quadrant < 4; quadrant++)
+                    {
+                        string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{quadrant + 1}.csv");
+                        if (File.Exists(filePath))
+                        {
+                            calibrationFactors[quadrant] = LoadCalibrationFile(filePath);
+                            Console.WriteLine($"사분면 {quadrant + 1}의 보정 파일을 성공적으로 로드했습니다.");
+                        }
+                        else
+                        {
+                            // 파일이 없으면 기본값 설정
+                            var defaultCalibration = new Dictionary<int, List<CalibrationRange>>();
+
+                            // 모든 센서 인덱스(1~2304)에 대한 기본값 설정
+                            for (int sensorIndex = 1; sensorIndex <= 2304; sensorIndex++)
+                            {
+                                defaultCalibration[sensorIndex] = new List<CalibrationRange>
+                                {
+                                    new CalibrationRange { AdcThreshold = float.MaxValue, Slope = 1.0f, Intercept = 0.0f }
+                                };
+                            }
+
+                            calibrationFactors[quadrant] = defaultCalibration;
+                            Console.WriteLine($"경고: 사분면 {quadrant + 1}의 보정 파일이 없습니다. 기본값(1.0)을 사용합니다.");
+                        }
+                    }
+                    isInitialized = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"보정 파일 로드 중 오류 발생: {ex.Message}");
+                    // 초기화 실패 시 기본값으로 설정
+                    InitializeDefaultCalibration();
+                }
+            }
+        }
+
+        private void InitializeDefaultCalibration()
+        {
+            calibrationFactors = new Dictionary<int, Dictionary<int, List<CalibrationRange>>>();
+
+            for (int quadrant = 0; quadrant < 4; quadrant++)
+            {
+                var defaultCalibration = new Dictionary<int, List<CalibrationRange>>();
+
+                // 모든 센서 인덱스(1~2304)에 대한 기본값 설정
+                for (int sensorIndex = 1; sensorIndex <= 2304; sensorIndex++)
+                {
+                    defaultCalibration[sensorIndex] = new List<CalibrationRange>
+                    {
+                        new CalibrationRange { AdcThreshold = float.MaxValue, Slope=1.0f, Intercept = 0.0f }
+                    };
+                }
+
+                calibrationFactors[quadrant] = defaultCalibration;
+            }
+
+            isInitialized = true;
+            Console.WriteLine("모든 사분면에 기본 보정값(1.0)을 적용했습니다.");
+        }
+
+        private Dictionary<int, List<CalibrationRange>> LoadCalibrationFile(string filePath)
+        {
+            var sensorCalibration = new Dictionary<int, List<CalibrationRange>>();
+            List<int> sensorIndices = new List<int>();
+
+            try
+            {
+                string[] lines = File.ReadAllLines(filePath);
+
+                int currentLineIndex = 0;
+                int sectionCount = 0;
+
+                while (currentLineIndex < lines.Length)
+                {
+                    string[] columns = lines[currentLineIndex++].Split(',');
+
+                    // 헤더 행 건너뛰기
+                    if (columns.Length > 0 && (columns[0] == "Calibration Result" || columns[0] == "Pressure"))
+                        continue;
+
+                    // 인덱스 행 처리
+                    if (columns.Length > 0 && (columns[0] == ""))
+                    {
+                        for (int col = 2; col < columns.Length; col++)
+                        {
+                            if (int.TryParse(columns[col], out int index))
+                            {
+                                sensorIndices.Add(index);
+                                sensorCalibration.Add(index, new List<CalibrationRange>());
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Adc 행 처리
+                    if (columns.Length > 0 && columns[0] == "Adc")
+                    {
+                        for (int col = 0, i = 0; col < columns.Length; col++)
+                        {
+                            if (float.TryParse(columns[col], NumberStyles.Any, CultureInfo.InvariantCulture, out float adcValue))
+                            {
+                                CalibrationRange calibrationRange = new CalibrationRange { AdcThreshold = adcValue };
+                                sensorCalibration[sensorIndices[i++]].Add(calibrationRange);
+                            }
+                        }
+                        sectionCount++;
+                        continue;
+                    }
+
+                    // Slope 행 처리
+                    if (columns.Length > 0 && columns[0] == "Slope")
+                    {
+                        for (int col = 0, i = 0; col < columns.Length; col++)
+                        {
+                            if (float.TryParse(columns[col], NumberStyles.Any, CultureInfo.InvariantCulture, out float slopeValue))
+                            {
+                                sensorCalibration[sensorIndices[i++]][sectionCount-1].Slope = slopeValue;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Intercept 행 처리
+                    if (columns.Length > 0 && columns[0] == "Intercept")
+                    {
+                        for (int col = 0, i = 0; col < columns.Length; col++)
+                        {
+                            if (float.TryParse(columns[col], NumberStyles.Any, CultureInfo.InvariantCulture, out float interceptValue))
+                            {
+                                sensorCalibration[sensorIndices[i++]][sectionCount - 1].Intercept = interceptValue;
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"파일 읽기 오류 ({filePath}): {ex.Message}");
+                // 오류 발생 시 기본값 1.0으로 설정된 배열 반환
+            }
+
+            return sensorCalibration;
+        }
+
+        public ushort[] Work(ushort[] rawData, int quadrant)
+        {
+            // 초기화되지 않았거나 해당 사분면 데이터가 없으면 원본 반환
+            if (!isInitialized || !calibrationFactors.ContainsKey(quadrant))
+            {
+                return rawData;
+            }
+
+            lock (lockObject)
+            {
+                ushort[] calibratedData = new ushort[rawData.Length];
+
+                for (int i = 0; i < rawData.Length; i++)
+                {
+                    int sensorIndex = i + 1;
+
+                    if (calibrationFactors[quadrant].ContainsKey(sensorIndex))
+                    {
+                        var ranges = calibrationFactors[quadrant][sensorIndex];
+                        float adcValue = rawData[i];
+
+                        // 적절한 보정 범위 찾기
+                        CalibrationRange selectedRange = null;
+                        foreach (var range in ranges)
+                        {
+                            if (adcValue < range.AdcThreshold)
+                            {
+                                selectedRange = range;
+                                break;
+                            }
+                        }
+
+                        // 범위를 찾지 못했으면 마지막 범위 사용
+                        if (selectedRange == null && ranges.Count > 0)
+                        {
+                            selectedRange = ranges.Last();
+                        }
+
+                        // 보정 실시
+                        if (selectedRange != null)
+                        {
+                            float calibratedValue = selectedRange.Slope * adcValue + selectedRange.Intercept;
+
+                            // 음수 값 방지
+                            calibratedValue = Math.Max(0, calibratedValue);
+                            //calibratedValue = Math.Min(ushort.MaxValue, calibratedValue);
+
+                            calibratedData[i] = (ushort)Math.Round(calibratedValue);
+                        }
+                        else
+                        {
+                            // 보정 정보가 없으면 원본 값 유지
+                            calibratedData[i] = rawData[i];
+                        }
+                    }
+                    else
+                    {
+                        // 센서 인덱스에 대한 보정 정보가 없으면 원본 값 유지
+                        calibratedData[i] = rawData[i];
+                    }
+                }
+
+                return calibratedData;
+            }
+        }
+
+        public void ReloadCalibration()
+        {
+            lock (lockObject)
+            {
+                Console.WriteLine("보정 파일을 다시 로드합니다...");
+                LoadCalibrationFiles();
+            }
+        }
+
+        public bool IsCalibrationInitialized()
+        {
+            return isInitialized;
+        }
+    }
+
     public class FootpadDevice
     {
-        public SerialPortStream Port {  get; private set; }
+        public SerialPortStream Port { get; private set; }
         public int QuadrantIndex { get; private set; }
         public ushort[] LastData { get; private set; }
         private static readonly byte[] RequestPacket = new byte[] { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
@@ -90,7 +588,7 @@ namespace MultiWebcamApp
 
                 // 헤더 확인
                 int headerStart = FindHeader(buffer, headerBytesRead);
-                if (headerStart == -1) 
+                if (headerStart == -1)
                     return false;
 
                 // 길이 확인
@@ -250,262 +748,6 @@ namespace MultiWebcamApp
                 Port.Close();
                 Port.Dispose();
             }
-        }
-    }
-
-    public partial class FootpadForm : Form
-    {
-        private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
-        private PressureMapViewer.MainWindow pressureMapWindow;
-        private readonly object dataLock = new object();
-        private bool isRunning = false;
-
-        private System.Windows.Forms.Timer _renderTimer;
-
-        public FootpadForm()
-        {
-            InitializeComponent();
-            InitializeDevices();
-
-            _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _renderTimer.Tick += (s, e) => renderTick(s, e);
-            _renderTimer.Start();
-        }
-
-        private void renderTick(Object? sender, EventArgs e)
-        {
-            if (isRunning)
-            {
-                isRunning = false;
-            }
-        }
-
-        private void InitializeDevices()
-        {
-            //var ports = SerialPort.GetPortNames()
-            //    .Where(p => p != "COM1")
-            //    .OrderBy(p => p)
-            //    .ToList();
-            string[] port = { "COM7", "COM9", "COM8", "COM10" };
-            var ports = port.ToList();
-
-            // 최대 4개의 포트만 사용
-            for (int i = 0; i < Math.Min(4, ports.Count); i++)
-            {
-                devices[i] = new FootpadDevice(ports[i], i);
-            }
-        }
-
-        private void FootpadForm_Load(object sender, EventArgs e)
-        {
-            pressureMapWindow = new PressureMapViewer.MainWindow();
-
-            Screen currentScreen = Screen.FromControl(this);
-            Rectangle screenBounds = currentScreen.Bounds;
-
-            pressureMapWindow.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
-            pressureMapWindow.WindowStyle = System.Windows.WindowStyle.None;
-            pressureMapWindow.ResizeMode = System.Windows.ResizeMode.NoResize;
-
-            pressureMapWindow.Left = screenBounds.Left;
-            pressureMapWindow.Top = screenBounds.Top;
-            pressureMapWindow.Width = screenBounds.Width;
-            pressureMapWindow.Height = screenBounds.Height;
-            
-            pressureMapWindow.Show();
-        }
-
-        private ushort[] combinedData = new ushort[9216]; // 96 * 96
-        private int lastProcessedQuadrant = 3;
-        public bool UpdateFrame()
-        {
-            bool ret = false;
-            if (isRunning) return ret;
-            _renderTimer.Start();
-            isRunning = true;
-
-            try
-            {
-                // 순환식으로 사분면 선택 (0->1->2->3->0->...)
-                int currentQuadrant = (lastProcessedQuadrant + 1) % 4;
-                lastProcessedQuadrant = currentQuadrant;
-
-                // 선택된 사분면만 처리
-                if (devices.ContainsKey(currentQuadrant))
-                {
-                    var device = devices[currentQuadrant];
-
-                    // 현재 사분면 데이터 수집
-                    bool deviceHasData = device.RequestAndReceiveData();
-
-                    if (deviceHasData)
-                    {
-                        // 현재 사분면의 위치 계산
-                        int baseRow = (currentQuadrant / 2) * 48;
-                        int baseCol = (currentQuadrant % 2) * 48;
-                        var deviceData = device.LastData;
-
-                        // 해당 사분면 영역만 업데이트
-                        for (int i = 0; i < 48; i++)
-                        {
-                            for (int j = 0; j < 48; j++)
-                            {
-                                combinedData[(baseRow + i) * 96 + (baseCol + j)] = deviceData[i * 48 + j];
-                            }
-                        }
-
-                        // UI 업데이트
-                        pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            pressureMapWindow.UpdatePressureData(combinedData);
-                        }), System.Windows.Threading.DispatcherPriority.Background);
-
-                        ret = true;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating frame: {ex.Message}");
-                ret = false;
-            }
-            finally
-            {
-                isRunning = false;
-                //_renderTimer.Stop();
-            }
-
-            return ret;
-        }
-
-        // FootpadForm 클래스 내에 추가할 메소드
-        public bool UpdateFrameAll()
-        {
-            bool ret = false;
-            if (isRunning) return ret;
-            _renderTimer.Start();
-            isRunning = true;
-
-            try
-            {
-                bool dataUpdated = false;
-
-                // 모든 사분면을 순차적으로 처리
-                for (int quadrant = 0; quadrant < 4; quadrant++)
-                {
-                    if (!devices.ContainsKey(quadrant))
-                        continue;
-
-                    var device = devices[quadrant];
-
-                    // 현재 사분면 데이터 수집
-                    bool deviceHasData = device.RequestAndReceiveData();
-
-                    if (deviceHasData)
-                    {
-                        // 현재 사분면의 위치 계산
-                        int baseRow = (quadrant / 2) * 48;
-                        int baseCol = (quadrant % 2) * 48;
-                        var deviceData = device.LastData; 
-                        int quadrantSize = 48;
-
-                        // 해당 사분면 영역 업데이트 (회전 및 대칭 적용)
-                        for (int i = 0; i < quadrantSize; i++)
-                        {
-                            for (int j = 0; j < quadrantSize; j++)
-                            {
-                                // 원본 데이터의 인덱스
-                                int originalIndex = i * quadrantSize + j;
-
-                                // 회전 및 대칭이 적용된 인덱스 계산
-                                int transformedI, transformedJ;
-
-                                switch (quadrant)
-                                {
-                                    case 0: // 1사분면: +90도 회전 + Y축 대칭 (왼쪽 상단)
-                                            // 먼저 +90도 회전
-                                        transformedI = j;
-                                        transformedJ = quadrantSize - 1 - i;
-
-                                        // 그다음 Y축 대칭 (사분면 중앙 세로선 기준)
-                                        transformedJ = quadrantSize - 1 - transformedJ;
-                                        break;
-
-                                    case 1: // 2사분면: -90도 회전 + Y축 대칭 (오른쪽 상단)
-                                            // 먼저 -90도 회전
-                                        transformedI = quadrantSize - 1 - j;
-                                        transformedJ = i;
-
-                                        // 그다음 Y축 대칭 (사분면 중앙 세로선 기준)
-                                        transformedJ = quadrantSize - 1 - transformedJ;
-                                        break;
-
-                                    case 2: // 3사분면: +90도 회전 + X축 대칭 (왼쪽 하단)
-                                            // 먼저 +90도 회전
-                                        transformedI = j;
-                                        transformedJ = quadrantSize - 1 - i;
-
-                                        // 그다음 X축 대칭 (사분면 중앙 가로선 기준)
-                                        transformedI = quadrantSize - 1 - transformedI;
-                                        break;
-
-                                    case 3: // 4사분면: -90도 회전 + X축 대칭 (오른쪽 하단)
-                                            // 먼저 -90도 회전
-                                        transformedI = quadrantSize - 1 - j;
-                                        transformedJ = i;
-
-                                        // 그다음 X축 대칭 (사분면 중앙 가로선 기준)
-                                        transformedI = quadrantSize - 1 - transformedI;
-                                        break;
-
-                                    default:
-                                        transformedI = i;
-                                        transformedJ = j;
-                                        break;
-                                }
-
-                                // 변환된 데이터를 combinedData에 배치
-                                combinedData[(baseRow + transformedI) * 96 + (baseCol + transformedJ)] = deviceData[originalIndex];
-                            }
-                        }
-
-                        dataUpdated = true;
-                    }
-                }
-
-                // 데이터가 업데이트되었으면 UI 갱신
-                if (dataUpdated)
-                {
-                    // UI 업데이트
-                    pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        pressureMapWindow.UpdatePressureData(combinedData);
-                    }), System.Windows.Threading.DispatcherPriority.Background);
-
-                    ret = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating all frames: {ex.Message}");
-                ret = false;
-            }
-            finally
-            {
-                isRunning = false;
-            }
-
-            return ret;
-        }
-
-        protected override void OnFormClosed(FormClosedEventArgs e)
-        {
-            isRunning = false;
-            foreach (var device in devices.Values)
-            {
-                device.Close();
-            }
-            base.OnFormClosed(e);
         }
     }
 }
