@@ -157,6 +157,12 @@ namespace MultiWebcamApp
             {
                 bool dataUpdated = false;
 
+                // 각 사분면을 처리할 병렬 작업 배열
+                Task<bool>[] quadrantTasks = new Task<bool>[4];
+
+                // 각 사분면의 데이터를 저장할 임시 배열
+                ushort[][] quadrantData = new ushort[4][];
+
                 // 사분면 데이터를 처리하기 위한 맵핑 정의
                 // 제조사 가이드에 따라: 
                 // - COM3(index 0)은 1사분면(좌측 상단)
@@ -173,57 +179,83 @@ namespace MultiWebcamApp
                     new Point(48, 48)     // 4사분면: 우측 하단 (48,48)
                 };
 
-                // 모든 사분면을 순차적으로 처리
+                // 각 사분면에 대한 병렬 작업 생성
                 for (int quadrant = 0; quadrant < 4; quadrant++)
                 {
-                    int deviceIndex = quadrantToIndex[quadrant];
-                    if (!devices.ContainsKey(deviceIndex))
-                        continue;
+                    int currentQuadrant = quadrant;
 
-                    var device = devices[deviceIndex];
-
-                    // 현재 사분면 데이터 수집
-                    bool deviceHasData = device.RequestAndReceiveData();
-
-                    if (deviceHasData)
+                    quadrantTasks[quadrant] = Task.Run(() =>
                     {
-                        //var deviceData = device.LastData;
-                        var deviceData = calibration.Work(device.LastData, quadrant);
-                        Point startPos = startPositions[quadrant];
+                        // 현재 사분면의 장치 인덱스
+                        int deviceIndex = quadrantToIndex[currentQuadrant];
 
-                        // 48x48 사분면 데이터를 96x96 combinedData에 복사
-                        // 세로로 먼저 증가(위에서 아래로), 그 다음 가로 방향으로 이동
-                        for (int col = 0; col < 48; col++)
+                        // 장치가 없으면 처리하지 않음
+                        if (!devices.ContainsKey(deviceIndex))
+                            return false;
+
+                        var device = devices[deviceIndex];
+
+                        // 현재 사분면 데이터 수집
+                        bool deviceHasData = device.ProcessResponseAndSendRequest();
+
+                        if (deviceHasData)
                         {
-                            for (int row = 0; row < 48; row++)
-                            {
-                                // 디바이스 데이터의 인덱스
-                                // 세로 방향이 먼저 증가하고, 그 다음 가로 방향으로 이동
-                                int index = col * 48 + row;
-
-                                // combinedData의 인덱스 계산
-                                int combinedRow = startPos.Y + row;
-                                int combinedCol = startPos.X + col;
-                                int combinedIndex = combinedRow * 96 + combinedCol;
-
-                                // 데이터 복사
-                                combinedData[combinedIndex] = deviceData[index];
-                            }
+                            // 캘리브레이션 처리
+                            quadrantData[currentQuadrant] = calibration.Work(device.LastData, currentQuadrant);
+                            return true;
                         }
 
-                        dataUpdated = true;
+                        return false;
+                    });
+                }
+                // 모든 병렬 작업이 완료될 때까지 기다림
+                Task.WaitAll(quadrantTasks);
+
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    if (quadrantTasks[quadrant].Result)
+                    {
+                        // 해당 사분면의 데이터가 성공적으로 수집된 경우
+                        Point startPos = startPositions[quadrant];
+                        ushort[] deviceData = quadrantData[quadrant];
+
+                        if (deviceData != null)
+                        {
+
+                            // 48x48 사분면 데이터를 96x96 combinedData에 복사
+                            // 세로로 먼저 증가(위에서 아래로), 그 다음 가로 방향으로 이동
+                            for (int col = 0; col < 48; col++)
+                            {
+                                for (int row = 0; row < 48; row++)
+                                {
+                                    // 디바이스 데이터의 인덱스
+                                    // 세로 방향이 먼저 증가하고, 그 다음 가로 방향으로 이동
+                                    int index = col * 48 + row;
+
+                                    // combinedData의 인덱스 계산
+                                    int combinedRow = startPos.Y + row;
+                                    int combinedCol = startPos.X + col;
+                                    int combinedIndex = combinedRow * 96 + combinedCol;
+
+                                    // 데이터 복사
+                                    combinedData[combinedIndex] = deviceData[index];
+                                }
+                            }
+
+                            dataUpdated = true;
+                        }
                     }
                 }
-
 
                 // 데이터가 업데이트되었으면 UI 갱신
                 if (dataUpdated)
                 {
                     // UI 업데이트
-                    pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        pressureMapWindow.UpdatePressureData(combinedData);
-                    }), System.Windows.Threading.DispatcherPriority.Background);
+                    //pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
+                    //{
+                    //    pressureMapWindow.UpdatePressureData(combinedData);
+                    //}), System.Windows.Threading.DispatcherPriority.Background);
+                    pressureMapWindow.UpdatePressureData(combinedData);
 
                     ret = true;
                 }
@@ -450,7 +482,7 @@ namespace MultiWebcamApp
                         CalibrationRange selectedRange = null;
                         foreach (var range in ranges)
                         {
-                            if (adcValue < range.AdcThreshold)
+                            if (adcValue <= range.AdcThreshold)
                             {
                                 selectedRange = range;
                                 break;
@@ -513,6 +545,7 @@ namespace MultiWebcamApp
         public ushort[] LastData { get; private set; }
         private static readonly byte[] RequestPacket = new byte[] { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
         private bool isProcessing = false;
+        private bool firstCall = true;
 
         public FootpadDevice(string portName, int quadrantIndex)
         {
@@ -536,6 +569,181 @@ namespace MultiWebcamApp
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to open oprt {portName}: {ex.Message}");
+            }
+        }
+
+        public bool ProcessResponseAndSendRequest()
+        {
+            if (!Port?.IsOpen == true || isProcessing) return false;
+
+            isProcessing = true;
+            bool responseProcessed = false;
+
+            try
+            {
+                // 첫 호출인 경우, 응답을 기다리지 않고 바로 요청 패킷만 보냄
+                if (firstCall)
+                {
+                    SendRequest();
+                    firstCall = false;
+                    return false;
+                }
+
+                // 이전 요청에 대한 응답을 처리
+                responseProcessed = ReceiveAndProcessResponse();
+
+                // 다음 데이터를 위한 요청 패킷을 보냄
+                SendRequest();
+
+                return responseProcessed;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in device {QuadrantIndex}: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                isProcessing = false;
+            }
+        }
+
+        // 요청 패킷만 보내는 메소드
+        private void SendRequest()
+        {
+            if (Port?.IsOpen == true)
+            {
+                // 필요 시 출력 버퍼 비우기
+                Port.DiscardOutBuffer();
+
+                // 요청 패킷 전송
+                Port.Write(RequestPacket, 0, RequestPacket.Length);
+            }
+        }
+
+        // 응답을 받아 처리하는 메소드
+        private bool ReceiveAndProcessResponse()
+        {
+            if (!Port?.IsOpen == true) return false;
+
+            try
+            {
+                // 잠시 대기하여 응답 데이터가 들어올 시간을 줌
+                if (Port.BytesToRead == 0)
+                {
+                    System.Threading.Thread.Sleep(5); // 짧은 대기 시간으로 시작
+
+                    // 여전히 데이터가 없으면 더 기다림
+                    if (Port.BytesToRead == 0)
+                    {
+                        System.Threading.Thread.Sleep(10); // 조금 더 대기
+                    }
+                }
+
+                // 충분한 데이터가 들어왔는지 확인
+                if (Port.BytesToRead < 100) // 최소한의 데이터만 확인
+                {
+                    // 데이터가 충분하지 않으면 입력 버퍼 비우기
+                    Port.DiscardInBuffer();
+                    return false;
+                }
+
+                // 예상되는 전체 응답 크기
+                const int EXPECTED_SIZE = 4622;  // 48*48*2 + overhead
+                byte[] buffer = new byte[EXPECTED_SIZE];
+                int totalBytesRead = 0;
+
+                // 타임아웃 설정
+                var startTime = DateTime.Now;
+                const int TIMEOUT_MS = 50;  // 50ms로 감소 (파이프라이닝에서는 더 짧은 시간이 적합)
+
+                // 2단계 읽기 접근법: 첫 번째로 헤더를 찾고, 그 다음 나머지 데이터를 읽음
+                // 헤더 읽기 (최대 20바이트 정도면 충분)
+                const int HEADER_SIZE = 20;
+                int headerBytesRead = 0;
+                while (headerBytesRead < HEADER_SIZE)
+                {
+                    if ((DateTime.Now - startTime).TotalMilliseconds > TIMEOUT_MS)
+                    {
+                        Port.DiscardInBuffer(); // 타임아웃 시 버퍼 비우기
+                        return false;
+                    }
+
+                    int bytesToRead = Port.BytesToRead;
+                    if (bytesToRead == 0) continue;
+
+                    int maxRead = Math.Min(bytesToRead, HEADER_SIZE - headerBytesRead);
+                    int bytesRead = Port.Read(buffer, headerBytesRead, maxRead);
+
+                    if (bytesRead == 0) continue;
+
+                    headerBytesRead += bytesRead;
+                }
+
+                // 헤더 확인
+                int headerStart = FindHeader(buffer, headerBytesRead);
+                if (headerStart == -1)
+                {
+                    Port.DiscardInBuffer(); // 헤더를 찾지 못하면 버퍼 비우기
+                    return false;
+                }
+
+                // 길이 확인
+                int dataLength = GetDataLength(buffer, headerStart);
+                if (dataLength != 4608)
+                {
+                    Port.DiscardInBuffer(); // 길이가 잘못되었으면 버퍼 비우기
+                    return false;
+                }
+
+                // 총 패킷 길이 계산
+                int totalPacketLength = headerStart + 11 + dataLength + 3;
+                totalBytesRead = headerBytesRead;
+
+                // 나머지 데이터 읽기
+                while (totalBytesRead < totalPacketLength)
+                {
+                    // 타임아웃 체크
+                    if ((DateTime.Now - startTime).TotalMilliseconds > TIMEOUT_MS)
+                    {
+                        Port.DiscardInBuffer(); // 타임아웃 시 버퍼 비우기
+                        return false;
+                    }
+
+                    int bytesToRead = Port.BytesToRead;
+                    if (bytesToRead == 0) continue;
+
+                    int maxRead = Math.Min(bytesToRead, totalPacketLength - totalBytesRead);
+                    int bytesRead = Port.Read(buffer, totalBytesRead, maxRead);
+
+                    if (bytesRead == 0) continue;
+
+                    totalBytesRead += bytesRead;
+                }
+
+                // 테일 확인
+                if (!CheckTail(buffer, totalPacketLength - 3))
+                {
+                    Port.DiscardInBuffer(); // 테일이 잘못되었으면 버퍼 비우기
+                    return false;
+                }
+
+                // 데이터 처리
+                ProcessData(buffer, headerStart + 11, dataLength);
+
+                // 남은 데이터가 있다면 버퍼 비우기
+                if (Port.BytesToRead > 0)
+                {
+                    Port.DiscardInBuffer();
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error receiving data from device {QuadrantIndex}: {ex.Message}");
+                Port.DiscardInBuffer(); // 예외 발생 시 버퍼 비우기
+                return false;
             }
         }
 
@@ -636,61 +844,6 @@ namespace MultiWebcamApp
             }
 
             return false;
-        }
-
-        private bool ProcessBuffer(byte[] buffer, int totalBytesRead)
-        {
-            try
-            {
-                // 최소 패킷 크기 확인 (헤더(7) + 길이필드(4) + 테일(3))
-                if (totalBytesRead < 14) return false;
-
-                // 헤더 찾기 (SA1A355)
-                int headerStart = -1;
-                for (int i = 0; i <= totalBytesRead - 7; i++)
-                {
-                    if (buffer[i] == 0x53 && buffer[i + 1] == 0x41 &&
-                        buffer[i + 2] == 0x31 && buffer[i + 3] == 0x41 &&
-                        buffer[i + 4] == 0x33 && buffer[i + 5] == 0x35 &&
-                        buffer[i + 6] == 0x35)
-                    {
-                        headerStart = i;
-                        break;
-                    }
-                }
-
-                if (headerStart == -1 || headerStart + 11 >= totalBytesRead)
-                    return false;
-
-                // 데이터 길이 확인 (4바이트 ASCII HEX)
-                string lengthHex = System.Text.Encoding.ASCII.GetString(buffer, headerStart + 7, 4);
-                int dataLength;
-                if (!int.TryParse(lengthHex, System.Globalization.NumberStyles.HexNumber, null, out dataLength))
-                    return false;
-
-                // 데이터 길이 유효성 검사 (48*48*2 = 4608)
-                if (dataLength != 4608)
-                    return false;
-
-                // 전체 패킷 길이 확인
-                int totalPacketLength = headerStart + 11 + dataLength + 3; // 헤더시작 + 헤더나머지(11) + 데이터길이 + 테일(3)
-                //if (totalBytesRead < totalPacketLength)
-                //    return false;
-
-                // 테일 체크 (FFE)
-                if (buffer[totalPacketLength - 3] != 0x46 ||
-                    buffer[totalPacketLength - 2] != 0x46 ||
-                    buffer[totalPacketLength - 1] != 0x45)
-                    return false;
-
-                // 데이터 처리 (48x48 array of 2-byte values)
-                ProcessData(buffer, headerStart + 11, dataLength);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
         }
 
         private int FindHeader(byte[] buffer, int length)

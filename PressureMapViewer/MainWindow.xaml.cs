@@ -34,6 +34,8 @@ namespace PressureMapViewer
         private DateTime _lastRenderTime = DateTime.MinValue;
         private readonly object _dataLock = new object();
 
+        private ushort[] _latestData;
+
         // 2D 렌더링 관련
         private WriteableBitmap heatmapBitmap;
         private int[] colorBuffer;
@@ -69,20 +71,16 @@ namespace PressureMapViewer
         private ModelVisual3D gridVisual;
         private const double GRID_SPACING = 0.2; // 격자 간격
 
-        // 스로틀링 타이머 추가
-        private System.Windows.Threading.DispatcherTimer _updateThrottleTimer;
-        private ushort[] _latestData;
-        private bool _dataUpdatedSinceLastRender = false;
-        private const int THROTTLE_INTERVAL_MS = 33; // 약 30fps로 제한
-
         // 밸런스 게이지 관련
-        private const double WEIGHT_THRESHOLD = 16.0; // 유효 압력 임계값
+        private const double WEIGHT_THRESHOLD = 2.0; // 유효 압력 임계값
         private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
 
         // 시계열 그래프 관련
         private const int MAX_CHART_POINTS = 200; // 최대 그래프 포인트 수
         private const double CHART_UPDATE_INTERVAL_MS = 100; // 그래프 업데이트 간격 (ms)
         private DateTime lastChartUpdateTime = DateTime.MinValue;
+        private const double WEIGHT_UPDATE_INTERVAL_MS = 1000;
+        private DateTime lastWeightUpdateTime = DateTime.MinValue;
 
         // 그래프 데이터 큐
         private Queue<Point> forefootHeelData = new Queue<Point>(MAX_CHART_POINTS);
@@ -100,6 +98,10 @@ namespace PressureMapViewer
         private double forefootPercent = 50;
         private double heelPercent = 50;
 
+        // 타이머 틱 이벤트 처리기
+        int frameCount = 0;
+        private DateTime lastFpsCheck = DateTime.Now;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -112,21 +114,32 @@ namespace PressureMapViewer
             // 3D 격자 초기화
             InitializeGrid();
 
-            InitializeUpdateThrottling();
-
             InitializeCharts();
-        }
-
-        private void InitializeUpdateThrottling()
-        {
-            _updateThrottleTimer = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(THROTTLE_INTERVAL_MS)
-            };
-            _updateThrottleTimer.Tick += OnUpdateTimerTick;
-            _updateThrottleTimer.Start();
 
             _latestData = new ushort[SENSOR_SIZE * SENSOR_SIZE];
+        }
+        
+        public void UpdatePressureData(ushort[] data)
+        {
+            if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
+                return;
+
+            frameCount++;
+            TimeSpan elapsed = DateTime.Now - lastFpsCheck;
+            if (elapsed.TotalMilliseconds >= 1000)
+            {
+                Console.WriteLine($"Footpad FPS: {frameCount}");
+                frameCount = 0;
+                lastFpsCheck = DateTime.Now;
+            }
+
+            Buffer.BlockCopy(data, 0, _latestData, 0, data.Length * sizeof(ushort));
+
+            // UI 스레드에서 실행
+            this.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                UpdatePressureDataDirect(_latestData);
+            }), System.Windows.Threading.DispatcherPriority.Send);
         }
 
         // 차트 초기화 메서드
@@ -201,52 +214,79 @@ namespace PressureMapViewer
             chartLine.Points = newPoints;
         }
 
-        // 타이머 틱 이벤트 처리기
-        int frameCount = 0;
-        private DateTime lastFpsCheck = DateTime.Now;
-        private void OnUpdateTimerTick(object? sender, EventArgs e)
+        private void UpdatePressureDataDirect(ushort[] data)
         {
-            if (_dataUpdatedSinceLastRender)
+            try
             {
-                frameCount++;
-                TimeSpan elapsed = DateTime.Now - lastFpsCheck;
-                if (elapsed.TotalMilliseconds >= 1000)
+                Update2D(data);
+                UpdateCenterOfPressure(data);
+                UpdateBalanceGauges(data);
+                // 일정 시간마다 차트 업데이트 (성능 최적화)
+                TimeSpan chartUpdateElapsed = DateTime.Now - lastChartUpdateTime;
+                if (chartUpdateElapsed.TotalMilliseconds >= CHART_UPDATE_INTERVAL_MS)
                 {
-                    Console.WriteLine($"Footpad FPS: {frameCount}");
-                    frameCount = 0;
-                    lastFpsCheck = DateTime.Now;
+                    UpdateCharts();
+                    lastChartUpdateTime = DateTime.Now;
                 }
-
-                // 직접 렌더링 메서드를 호출
-                _lastRenderTime = DateTime.Now;
-                _dataUpdatedSinceLastRender = false;
-
-                try
+                TimeSpan weightUpdateElapsed = DateTime.Now - lastWeightUpdateTime;
+                if (weightUpdateElapsed.TotalMilliseconds >= WEIGHT_UPDATE_INTERVAL_MS)
                 {
-                    Update2D(_latestData);
-                    UpdateCenterOfPressure(_latestData);
-                    UpdateBalanceGauges(_latestData );
-
-                    // 일정 시간마다 차트 업데이트 (성능 최적화)
-                    TimeSpan chartUpdateElapsed = DateTime.Now - lastChartUpdateTime;
-                    if (chartUpdateElapsed.TotalMilliseconds >= CHART_UPDATE_INTERVAL_MS)
-                    {
-                        UpdateCharts();
-                        lastChartUpdateTime = DateTime.Now;
-                    }
-
-                    // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
-                    //if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
-                    //{
-                    //    Update3D(_latestData);
-                    //    UpdateGrid(_latestData);
-                    //}
+                    EstimateWeight(data);
+                    lastWeightUpdateTime = DateTime.Now;
                 }
-                catch (Exception ex)
+                // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
+                //if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
+                //{
+                //    Update3D(data);
+                //    UpdateGrid(data);
+                //}
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Rendering error: {ex.Message}");
+            }
+        }
+
+        private double estimatedWeight = 0; // 추정 무게 (kg)
+        private const double CELL_SIZE = 0.0055; // 셀 한 변의 길이 (5.5mm = 0.0055m)
+        private const double CELL_AREA = CELL_SIZE * CELL_SIZE; // 각 셀의 면적 (m²)
+        private const double GRAVITY = 9.81; // 중력 가속도 (m/s²)
+        private const double PRESSURE_SCALING_FACTOR = 1000.0; // 압력 보정 계수 (필요 시 조정)
+        private void EstimateWeight(ushort[] data)
+        {
+            double totalForce = 0;
+            double totalActiveCells = 0;
+
+            for (int i = 0; i < data.Length; i++)
+            {
+                double pressure = data[i] * PRESSURE_SCALING_FACTOR;
+
+                // 노이즈 간주
+                if (pressure > WEIGHT_THRESHOLD)
                 {
-                    Console.WriteLine($"Rendering error: {ex.Message}");
+                    double force = pressure * CELL_AREA; // 힘(N) = 압력(pa) * 면적(m2)
+                    totalForce += force;
+                    totalActiveCells++;
                 }
             }
+
+            estimatedWeight = totalForce / GRAVITY;
+
+            UpdateWeightDisplay(estimatedWeight, totalActiveCells);
+        }
+
+        private void UpdateWeightDisplay(double weight, double activeCells)
+        {
+            //if (weight < 0.5)
+            //{
+            //    WeightValueText.Text = "측정 대기 중";
+            //    ActiveCellsText.Text = "-";
+            //}
+            //else
+            //{
+                WeightValueText.Text = $"{Math.Round(weight, 1)} kg";
+                ActiveCellsText.Text = $"{Math.Round(activeCells)} 셀";
+            //}
         }
 
         // 차트 업데이트 메서드
@@ -331,7 +371,7 @@ namespace PressureMapViewer
                 Width = 10,
                 Height = 10,
                 Fill = Brushes.White,
-                Stroke = Brushes.Wheat,
+                Stroke = Brushes.White,
                 StrokeThickness = 2
             };
 
@@ -599,14 +639,14 @@ namespace PressureMapViewer
                 double screenX = centerOfPressure.X * scaleX;
                 double screenY = centerOfPressure.Y * scaleY;
 
-                // 현재 포인트 위치 업데이트
-                Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
-                Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
-
                 // 현재 압력이 임계값을 넘을 때만 궤적에 추가
                 //if (totalPressure > 4608) // 임계값은 적절히 조정 필요
                 if (totalPressure > 1000)
                 {
+                    // 현재 포인트 위치 업데이트
+                    Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
+                    Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
+
                     // 궤적 히스토리 업데이트
                     copHistory.Enqueue(new Point(screenX, screenY));
                     while (copHistory.Count > MAX_TRAJECTORY_POINTS)
@@ -644,6 +684,14 @@ namespace PressureMapViewer
                             EndPoint = new Point(1, 0)
                         };
                     }
+                }
+                else
+                {
+                    double x = HeatmapImage.ActualWidth / 2;
+                    double y = HeatmapImage.ActualHeight / 2;
+                    // 현재 포인트 위치 센터 고정
+                    Canvas.SetLeft(copIndicator, x - copIndicator.Width / 2);
+                    Canvas.SetTop(copIndicator, y - copIndicator.Height / 2);
                 }
             }
         }
@@ -860,18 +908,6 @@ namespace PressureMapViewer
             HeelGauge.Fill = new SolidColorBrush(rightFootColor);
         }
 
-        public void UpdatePressureData(ushort[] data)
-        {
-            if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
-                return;
-
-            lock (_dataLock)
-            {
-                Buffer.BlockCopy(data, 0, _latestData, 0, data.Length * sizeof(ushort));
-                _dataUpdatedSinceLastRender = true;
-            }
-        }
-
         // 2D 렌더링 최적화 
         private unsafe void Update2D(ushort[] data)
         {
@@ -1010,6 +1046,17 @@ namespace PressureMapViewer
             camera.Position = new Point3D(x, y, cameraHeight);
             camera.LookDirection = new Vector3D(-x, -y, -cameraHeight);
             camera.UpDirection = initialUpDirection;
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+
+            //if (_updateThrottleTimer != null)
+            //{
+            //    _updateThrottleTimer.Stop();
+            //    _updateThrottleTimer.Dispose();
+            //}
         }
     }
 }

@@ -78,7 +78,7 @@ namespace MultiWebcamApp
                 long frameStartTime = _mainStopwatch.ElapsedMilliseconds;
 
                 // 프레임 처리
-                if (_frameCount % 2 == 0)
+                if (_frameCount % 4 == 0)
                 {
                     _ = Task.WhenAll(
                         Task.Run(() => _webcamFormHead.work(frameStartTime)),
