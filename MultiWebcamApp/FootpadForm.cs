@@ -9,13 +9,18 @@ using System.Globalization;
 
 namespace MultiWebcamApp
 {
-    public partial class FootpadForm : Form
+    public partial class FootpadForm : Form, IFrameProvider
     {
         private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
         private PressureMapViewer.MainWindow pressureMapWindow;
         private readonly object dataLock = new object();
         private bool isRunning = false;
         private Calibration calibration;
+
+        private Bitmap _currentVisualization;
+        private readonly object _visualizationLock = new object();
+        private Task _captureTask;
+        private bool _isCapturing = false;
 
         private System.Windows.Forms.Timer _renderTimer;
 
@@ -273,9 +278,99 @@ namespace MultiWebcamApp
             return ret;
         }
 
+        /// <summary>
+        /// 생성자 이후에 이 메서드를 호출하여 캡처 시작 (MainForm에서 호출)
+        /// </summary>
+        public void InitializeForRecording()
+        {
+            StartVisualizationCapture();
+        }
+
+        /// <summary>
+        /// FootpadForm이 로드될 때 비주얼라이제이션 캡처 시작
+        /// </summary>
+        private void StartVisualizationCapture()
+        {
+            if (_isCapturing) return;
+            _isCapturing = true;
+
+            _captureTask = Task.Run(async () => {
+                while (_isCapturing)
+                {
+                    try
+                    {
+                        // UI 스레드에서 WPF 비주얼 캡처
+                        var bitmap = await pressureMapWindow.Dispatcher.InvokeAsync(() => {
+                            return WpfToBitmapConverter.CaptureVisual(pressureMapWindow);
+                        });
+
+                        // 비주얼라이제이션 업데이트
+                        lock (_visualizationLock)
+                        {
+                            _currentVisualization?.Dispose();
+                            _currentVisualization = bitmap;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"비주얼라이제이션 캡처 오류: {ex.Message}");
+                    }
+
+                    // 캡처 간격 (약 15fps)
+                    await Task.Delay(66);
+                }
+            });
+        }
+
+        /// <summary>
+        /// FootpadForm이 닫힐 때 비주얼라이제이션 캡처 중지
+        /// </summary>
+        private void StopVisualizationCapture()
+        {
+            _isCapturing = false;
+
+            lock (_visualizationLock)
+            {
+                _currentVisualization?.Dispose();
+                _currentVisualization = null;
+            }
+        }
+
+        /// <summary>
+        /// 현재 압력 매핑 비주얼라이제이션 이미지와 타임스탬프 반환
+        /// </summary>
+        /// <returns>현재 비주얼라이제이션과 타임스탬프</returns>
+        public (Bitmap frame, long timestamp) GetCurrentFrame()
+        {
+            Bitmap result = null;
+
+            lock (_visualizationLock)
+            {
+                if (_currentVisualization != null)
+                {
+                    // 복사본 생성 (스레드 안전 보장)
+                    result = new Bitmap(_currentVisualization);
+                }
+            }
+
+            // 비주얼라이제이션이 없는 경우 빈 이미지 반환
+            if (result == null)
+            {
+                result = new Bitmap(960, 540);
+                using (Graphics g = Graphics.FromImage(result))
+                {
+                    g.Clear(Color.Black);
+                    g.DrawString("압력패드 데이터 없음", new Font("맑은 고딕", 20), Brushes.White, 10, 10);
+                }
+            }
+
+            return (result, DateTime.Now.Ticks);
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             isRunning = false;
+            StopVisualizationCapture();
             foreach (var device in devices.Values)
             {
                 device.Close();

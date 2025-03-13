@@ -37,6 +37,9 @@ namespace MultiWebcamApp
         private const int TARGET_FPS = 60;
         private readonly int _frameTimeMs;
 
+        private RecordingManager _recordingManager;
+        private System.Windows.Forms.Timer _recordingStatusTimer;
+
         private readonly Stopwatch _mainStopwatch = new Stopwatch();
 
         public MainForm()
@@ -92,6 +95,21 @@ namespace MultiWebcamApp
                         Task.Run(() => _webcamFormHead.work(frameStartTime)),
                         Task.Run(() => _webcamFormBody.work(frameStartTime))
                     );
+                }
+
+                // 녹화 기능 추가: 녹화 중이면 현재 프레임 저장
+                if (_recordingManager != null && _recordingManager.IsRecording && _frameCount % 4 == 2)
+                {
+                    // 모든 프레임 소스에서 현재 프레임 획득
+                    var frames = new List<(Bitmap frame, long timestamp)>
+                        {
+                            _webcamFormHead.GetCurrentFrame(),
+                            _webcamFormBody.GetCurrentFrame(),
+                            _footpadForm.GetCurrentFrame()
+                        };
+
+                    // 녹화 처리 (비동기로 실행하여 메인 루프 블로킹 방지)
+                    Task.Run(() => _recordingManager.RecordFrame(frames));
                 }
 
                 _frameCount++;
@@ -238,14 +256,20 @@ namespace MultiWebcamApp
             y = y + height + margin;
             width = 120;
             height = 30;
-            _swapButton.Location = new Point(x, y);
-            _swapButton.Size = new Size(width, height);
-            _swapButton.OnColor = Color.Red;
-            _swapButton.OnText = "녹화켜짐";
-            _swapButton.OffText = "녹화꺼짐";
-            _swapButton.TextFont = new Font("맑은 고딕", 24, FontStyle.Bold);
-            _swapButton.CheckedChanged += new EventHandler(RecordButton_Checked);
-            _swapButton.Enabled = false;
+            _recordButton.Location = new Point(x, y);
+            _recordButton.Size = new Size(width, height);
+            _recordButton.OnColor = Color.Red;
+            _recordButton.OffColor = Color.DarkGray;
+            _recordButton.OnText = "녹화중";
+            _recordButton.OffText = "녹화";
+            _recordButton.TextFont = new Font("맑은 고딕", 24, FontStyle.Bold);
+            _recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
+            //_recordButton.Enabled = false;
+
+            // 녹화 상태 표시 타이머
+            _recordingStatusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _recordingStatusTimer.Tick += (s, e) => UpdateRecordingStatus();
+            _recordingStatusTimer.Start();
 
             // 버튼 타이머
             _backwardTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -355,6 +379,33 @@ namespace MultiWebcamApp
             _footpadForm.Show();
 
             InitializeProcess();
+            InitializeRecordingManager();
+        }
+
+        private void InitializeRecordingManager()
+        {
+            try
+            {
+                // FootpadForm에 캡처 기능 초기화
+                _footpadForm.InitializeForRecording();
+
+                // 프레임 소스 목록 생성
+                var frameSources = new List<IFrameProvider>
+                {
+                    _webcamFormHead,
+                    _webcamFormBody,
+                    _footpadForm
+                };
+
+                // 녹화 매니저 초기화
+                _recordingManager = new RecordingManager(frameSources);
+
+                Console.WriteLine("녹화 기능 초기화 완료");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"녹화 기능 초기화 오류: {ex.Message}");
+            }
         }
 
         private void DelaySlider_ValueChanged(object sender, EventArgs e)
@@ -432,7 +483,49 @@ namespace MultiWebcamApp
 
         private void RecordButton_Checked(Object? sender, EventArgs e)
         {
-            Console.WriteLine($"{_swapButton.Checked}");
+            Console.WriteLine($"{_recordButton.Checked}");
+            if (_recordingManager == null) return;
+
+            try
+            {
+                if (_recordButton.Checked)
+                {
+                    _recordingManager.StartRecording();
+                }
+                else
+                {
+                    _recordingManager.StopRecording();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
+                _recordButton.Checked = false;
+            }
+        }
+
+        private void UpdateRecordingStatus()
+        {
+            if (_recordingManager == null) return;
+
+            // 녹화 중이면 버튼 깜빡임 효과
+            if (_recordingManager.IsRecording)
+            {
+                _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
+                    ? System.Drawing.Color.DarkRed
+                    : System.Drawing.Color.Red;
+            }
+            else
+            {
+                _recordButton.OnColor = System.Drawing.Color.Red;
+            }
+        }
+
+        private void CleanupRecordingResources()
+        {
+            _recordingStatusTimer?.Stop();
+            _recordingStatusTimer?.Dispose();
+            _recordingManager?.Dispose();
         }
 
         private void UpdatePlayPauseButton()

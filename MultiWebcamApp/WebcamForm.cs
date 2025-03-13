@@ -12,7 +12,7 @@ using SharpDX.DXGI;
 
 namespace MultiWebcamApp
 {
-    public partial class WebcamForm : Form
+    public partial class WebcamForm : Form, IFrameProvider
     {
         private readonly int _cameraIndex;
         private VideoCapture? _capture;
@@ -175,6 +175,31 @@ namespace MultiWebcamApp
                     _viewer.UpdateFrame(frame, msg, " ");
                     break;
             }
+        }
+
+        public (Bitmap frame, long timestamp) GetCurrentFrame()
+        {
+            try
+            {
+                // _frameBuffer에서 현재 재생 중인 위치의 프레임 가져오기
+                var frameMat = _state == _mode.Idle
+                    ? _frameMat?.Clone()
+                    : _frameBuffer?.Get(_playPoint);
+
+                if (frameMat != null && !frameMat.Empty())
+                {
+                    // OpenCV Mat을 Bitmap으로 변환
+                    var bitmap = frameMat.ToBitmap();
+                    return (bitmap, DateTime.Now.Ticks);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"웹캠 프레임 획득 오류: {ex.Message}");
+            }
+
+            // 실패 시 빈 이미지 반환
+            return (new Bitmap(960, 540), DateTime.Now.Ticks);
         }
 
         private void HandleKeyInput()
