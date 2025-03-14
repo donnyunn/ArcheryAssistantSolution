@@ -11,6 +11,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Diagnostics;
+using System.Drawing.Interop;
+using System.Windows.Controls;
 
 namespace MultiWebcamApp
 {
@@ -311,7 +313,8 @@ namespace MultiWebcamApp
                 Console.WriteLine($"FootpadForm: PressureMapViewer 크기 = {pressureMapWindow.Width}x{pressureMapWindow.Height}");
 
                 // 첫 번째 캡처 수행 (테스트)
-                CaptureWindowContent();
+                //CaptureWindowContent();
+                StartBackgroundCapture();
 
                 _captureInitialized = true;
                 Console.WriteLine("FootpadForm: 녹화를 위한 캡처 기능 초기화 완료");
@@ -322,100 +325,255 @@ namespace MultiWebcamApp
             }
         }
 
-        /// <summary>
-        /// WPF 윈도우 전체 내용을 캡처
-        /// </summary>
-        private int logCount = 0;
-        private Bitmap CaptureWindowContent()
+        // 클래스 멤버 변수로 추가
+        private Bitmap _cachedBitmap = null;
+        private DateTime _lastCaptureTime = DateTime.MinValue;
+        private readonly TimeSpan _cacheTimeout = TimeSpan.FromMilliseconds(33); // 약 30fps
+        private readonly ConcurrentQueue<Bitmap> _captureQueue = new ConcurrentQueue<Bitmap>();
+        private Task _backgroundCaptureTask;
+        private CancellationTokenSource _captureCts = new CancellationTokenSource();
+        private int _captureWidth = 960;
+        private int _captureHeight = 540;
+        private bool _backgroundCaptureRunning = false;
+
+        // 백그라운드 캡처 시작 메소드
+        public void StartBackgroundCapture()
         {
-            Bitmap result = null;
+            if (_backgroundCaptureRunning)
+                return;
+
+            _backgroundCaptureRunning = true;
+            _captureCts = new CancellationTokenSource();
+
+            _backgroundCaptureTask = Task.Run(async () => {
+                try
+                {
+                    while (!_captureCts.Token.IsCancellationRequested)
+                    {
+                        // UI 스레드에서 작업 요청
+                        Bitmap bitmap = null;
+
+                        var captureTask = pressureMapWindow.Dispatcher.InvokeAsync(() => {
+                            try
+                            {
+                                return CaptureDirectly();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"FootpadForm: 백그라운드 Invoke 캡처 오류 - {ex.Message}");
+                                return null;
+                            }
+                        }, System.Windows.Threading.DispatcherPriority.Render);
+
+                        // 캡처 작업이 완료될 때까지 대기 (최대 100ms)
+                        await Task.Delay(5); // 짧은 대기로 UI 스레드 여유 제공
+
+                        try
+                        {
+                            if (captureTask.Status == System.Windows.Threading.DispatcherOperationStatus.Completed ||
+                                captureTask.Wait(TimeSpan.FromMilliseconds(100)) == DispatcherOperationStatus.Completed)
+                            {
+                                bitmap = captureTask.Result;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"FootpadForm: 백그라운드 캡처 대기 오류 - {ex.Message}");
+                        }
+
+                        // 큐 크기 제한 (최대 2개만 유지)
+                        while (_captureQueue.Count > 1)
+                        {
+                            Bitmap oldBmp;
+                            if (_captureQueue.TryDequeue(out oldBmp))
+                                oldBmp?.Dispose();
+                        }
+
+                        if (bitmap != null)
+                            _captureQueue.Enqueue(bitmap);
+
+                        await Task.Delay(33, _captureCts.Token); // 약 30fps
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // 정상적인 취소
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"FootpadForm: 백그라운드 캡처 오류 - {ex.Message}");
+                }
+                finally
+                {
+                    _backgroundCaptureRunning = false;
+                }
+            }, _captureCts.Token);
+        }
+
+        // 백그라운드 캡처 중지 메소드
+        public void StopBackgroundCapture()
+        {
+            _captureCts.Cancel();
+
+            // 큐에 있는 모든 비트맵 정리
+            while (_captureQueue.Count > 0)
+            {
+                Bitmap bitmap;
+                if (_captureQueue.TryDequeue(out bitmap))
+                    bitmap?.Dispose();
+            }
+        }
+
+        // 직접 캡처 메소드 (UI 스레드에서 호출)
+        private Bitmap CaptureDirectly()
+        {
+            // 이 메소드는 반드시 UI 스레드에서 호출되어야 함
+            if (!pressureMapWindow.Dispatcher.CheckAccess())
+            {
+                Console.WriteLine("FootpadForm: 잘못된 스레드에서 CaptureDirectly 호출됨");
+                return null;
+            }
 
             try
             {
-                // UI 스레드에서 화면 캡처 수행
-                var captureTask = pressureMapWindow.Dispatcher.InvokeAsync(() => {
-                    try
+                // 창 크기 확인
+                if (pressureMapWindow.ActualWidth <= 0 || pressureMapWindow.ActualHeight <= 0)
+                {
+                    return null;
+                }
+
+                // 1. 전체 창을 원본 해상도로 캡처
+                var renderTargetBitmap = new RenderTargetBitmap(
+                    (int)pressureMapWindow.ActualWidth,
+                    (int)pressureMapWindow.ActualHeight,
+                    96, 96, PixelFormats.Pbgra32);
+
+                renderTargetBitmap.Render(pressureMapWindow);
+
+                // 2. 캡처한 이미지를 System.Drawing.Bitmap으로 변환
+                BitmapEncoder encoder = new BmpBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(renderTargetBitmap));
+
+                // 메모리 스트림으로 저장
+                using (MemoryStream stream = new MemoryStream())
+                {
+                    encoder.Save(stream);
+                    stream.Position = 0;
+
+                    // 3. 원본 비트맵 생성
+                    using (var originalBitmap = new Bitmap(stream))
                     {
-                        // WPF 창의 전체 내용을 캡처
-                        var visual = pressureMapWindow;
-                        int width = (int)pressureMapWindow.ActualWidth;
-                        int height = (int)pressureMapWindow.ActualHeight;
+                        // 4. 축소된 비트맵 생성 (960x540)
+                        var resizedBitmap = new Bitmap(_captureWidth, _captureHeight, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
 
-                        if (width <= 0 || height <= 0)
+                        using (Graphics g = Graphics.FromImage(resizedBitmap))
                         {
-                            Console.WriteLine("FootpadForm: 창 크기가 유효하지 않음");
-                            return null;
-                        }
+                            // 고품질 이미지 축소 설정
+                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
 
-                        // 전체 창 내용 렌더링
-                        var rtb = new RenderTargetBitmap(
-                            width, height, 96, 96, PixelFormats.Pbgra32);
-                        rtb.Render(visual);
+                            // 배경색 설정 (선택 사항)
+                            g.Clear(System.Drawing.Color.Black);
 
-                        // 비트맵으로 변환
-                        var encoder = new BmpBitmapEncoder();
-                        encoder.Frames.Add(BitmapFrame.Create(rtb));
-
-                        using (var stream = new MemoryStream())
-                        {
-                            encoder.Save(stream);
-                            stream.Seek(0, SeekOrigin.Begin);
-
-                            // 원본 크기 비트맵
-                            var originalBitmap = new Bitmap(stream);
-
-                            // 알파 채널이 없는 비트맵으로 변환
-                            var bitmapWithoutAlpha = new Bitmap(
+                            // 가로세로 비율을 유지하면서 이미지 축소
+                            Rectangle destRect = CalculateAspectRatioFit(
                                 originalBitmap.Width,
                                 originalBitmap.Height,
-                                System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+                                _captureWidth,
+                                _captureHeight);
 
-                            using (Graphics g = Graphics.FromImage(bitmapWithoutAlpha))
-                            {
-                                g.DrawImage(originalBitmap, 0, 0);
-                            }
-
-                            originalBitmap.Dispose();
-
-                            // 절반 크기로 리사이징 (성능 개선)
-                            //int newWidth = (int)(originalBitmap.Width * SCALE_FACTOR);
-                            //int newHeight = (int)(originalBitmap.Height * SCALE_FACTOR);
-                            int newWidth = 960;
-                            int newHeight = 540;
-
-                            var resizedBitmap = new Bitmap(newWidth, newHeight, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
-                            using (Graphics g = Graphics.FromImage(resizedBitmap))
-                            {
-                                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                                g.DrawImage(bitmapWithoutAlpha, 0, 0, newWidth, newHeight);
-                            }
-
-                            bitmapWithoutAlpha.Dispose();
-                            return resizedBitmap;
+                            // 전체 창을 축소된 사이즈로 그리기
+                            g.DrawImage(originalBitmap, destRect);
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"FootpadForm: 창 캡처 오류 - {ex.Message}");
-                        return null;
-                    }
-                });
 
-                // 최대 200ms 대기 (UI 스레드 교착 상태 방지)
-                DispatcherOperationStatus completed = captureTask.Wait(TimeSpan.FromMilliseconds(200));
+                        return resizedBitmap;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FootpadForm: 직접 캡처 오류 - {ex.Message}");
+                return null;
+            }
+        }
 
-                if (completed == DispatcherOperationStatus.Completed && captureTask.Result != null)
+        // 가로세로 비율을 유지하며 이미지 크기 조정 계산
+        private Rectangle CalculateAspectRatioFit(int srcWidth, int srcHeight, int maxWidth, int maxHeight)
+        {
+            var ratio = Math.Min((float)maxWidth / srcWidth, (float)maxHeight / srcHeight);
+
+            var newWidth = (int)(srcWidth * ratio);
+            var newHeight = (int)(srcHeight * ratio);
+
+            // 이미지를 화면 중앙에 배치
+            var newX = (maxWidth - newWidth) / 2;
+            var newY = (maxHeight - newHeight) / 2;
+
+            return new Rectangle(newX, newY, newWidth, newHeight);
+        }
+
+        // 최적화된 CaptureWindowContent 메소드
+        private Bitmap CaptureWindowContent()
+        {
+            // 백그라운드 캡처가 실행 중인 경우 큐에서 가져오기
+            if (_backgroundCaptureRunning)
+            {
+                Bitmap result = null;
+                if (_captureQueue.TryPeek(out result) && result != null)
                 {
-                    result = captureTask.Result;
+                    return (Bitmap)result.Clone();
+                }
+            }
 
-                    // 디버깅용 (첫 번째 프레임에만 로그)                    
-                    if (logCount < 1)
-                    {
-                        Console.WriteLine($"FootpadForm: 압력패드 창 캡처 성공 ({result.Width}x{result.Height})");
-                        // 테스트를 위해 첫 번째 캡처 이미지 저장
-                        result.Save("C:\\Users\\dulab\\Downloads\\footpad_capture_test.png", ImageFormat.Png);
-                        logCount++;
-                    }
+            // 백그라운드 캡처가 없거나 실패한 경우 동기 캡처 시도
+            try
+            {
+                // 캐시된 결과가 있고 충분히 최신인 경우 사용
+                if (_cachedBitmap != null && (DateTime.Now - _lastCaptureTime) < _cacheTimeout)
+                {
+                    return (Bitmap)_cachedBitmap.Clone();
+                }
+
+                Bitmap result = null;
+
+                // UI 스레드에서 접근 가능한지 확인
+                if (pressureMapWindow.Dispatcher.CheckAccess())
+                {
+                    result = CaptureDirectly();
+                }
+                else
+                {
+                    // UI 스레드에서 실행
+                    var tcs = new TaskCompletionSource<Bitmap>();
+
+                    pressureMapWindow.Dispatcher.BeginInvoke(new Action(() => {
+                        try
+                        {
+                            // UI 스레드에서 직접 실행
+                            var capturedBitmap = CaptureDirectly();
+                            tcs.SetResult(capturedBitmap);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"FootpadForm: Dispatcher 캡처 오류 - {ex.Message}");
+                            tcs.SetResult(null);
+                        }
+                    }));
+
+                    result = tcs.Task.Result;
+                }
+
+                // 결과 캐싱
+                if (result != null)
+                {
+                    // 이전 캐시 정리
+                    _cachedBitmap?.Dispose();
+                    _cachedBitmap = result;
+                    _lastCaptureTime = DateTime.Now;
+
+                    return (Bitmap)result.Clone();
                 }
             }
             catch (Exception ex)
@@ -423,67 +581,21 @@ namespace MultiWebcamApp
                 Console.WriteLine($"FootpadForm: CaptureWindowContent 오류 - {ex.Message}");
             }
 
-            return result;
+            return null;
         }
 
-        /// <summary>
-        /// 현재 압력 매핑 비주얼라이제이션 이미지와 타임스탬프 반환
-        /// </summary>
-        /// <returns>현재 비주얼라이제이션과 타임스탬프</returns>
+        // GetCurrentFrame 메소드 (IFrameProvider 인터페이스 구현)
         public (Bitmap frame, long timestamp) GetCurrentFrame()
         {
-            Bitmap result = null;
+            var bitmap = CaptureWindowContent();
+            return (bitmap, DateTime.Now.Ticks);
+        }
 
-            try
-            {
-                result = CaptureWindowContent();
-
-                if (result != null)
-                {
-                    // 캡처 성공 시 이미지 저장
-                    lock (_visualizationLock)
-                    {
-                        _currentVisualization?.Dispose();
-                        _currentVisualization = new Bitmap(result);
-                    }
-                }
-                else
-                {
-                    // 캡처 실패 시 이전에 캡처된 이미지 사용
-                    lock (_visualizationLock)
-                    {
-                        if (_currentVisualization != null)
-                        {
-                            result = new Bitmap(_currentVisualization);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"FootpadForm: GetCurrentFrame Error - {ex.Message}");
-            }
-
-            // 이미지가 없는 경우 빈 이미지 생성
-            if (result == null)
-            {
-                // 웹캠 프레임과 동일한 크기(960x540)의 빈 이미지 생성
-                result = new Bitmap(960, 540);
-                using (Graphics g = Graphics.FromImage(result))
-                {
-                    g.Clear(System.Drawing.Color.Blue);
-                    g.DrawString("압력패드 화면을 캡처할 수 없습니다",
-                        new Font("맑은 고딕", 20), System.Drawing.Brushes.White, 10, 10);
-
-                    // 대안: combinedData로부터 직접 시각화
-                    //if (combinedData != null && combinedData.Length == 9216) // 96x96
-                    //{
-                    //    DrawPressureData(g, result.Width, result.Height);
-                    //}
-                }
-            }
-
-            return (result, DateTime.Now.Ticks);
+        public void Cleanup()
+        {
+            StopBackgroundCapture();
+            _cachedBitmap?.Dispose();
+            _cachedBitmap = null;
         }
 
         public ICameraControl.OperationMode GetCurrentMode()
@@ -638,6 +750,7 @@ namespace MultiWebcamApp
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            Cleanup();
             isRunning = false;
             foreach (var device in devices.Values)
             {

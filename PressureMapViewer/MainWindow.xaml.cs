@@ -1068,11 +1068,11 @@ namespace PressureMapViewer
         {
             value = Math.Clamp(value, 0, 1);
 
-            if (value < 0.2f)
+            if (value < 0.1f)
                 return Color.FromRgb(0, 0, (byte)(255 * (value / 0.2f)));
-            else if (value < 0.4f)
+            else if (value < 0.2f)
                 return Color.FromRgb(0, (byte)(255 * ((value - 0.2f) / 0.2f)), 255);
-            else if (value < 0.6f)
+            else if (value < 0.4f)
                 return Color.FromRgb((byte)(255 * ((value - 0.4f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.4f) / 0.2f)));
             else if (value < 0.8f)
                 return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.6f) / 0.2f)), 0);

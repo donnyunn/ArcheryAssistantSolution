@@ -98,7 +98,7 @@ namespace MultiWebcamApp
                 }
 
                 // 녹화 기능 추가: 녹화 중이면 현재 프레임 저장
-                if (_recordingManager != null && _recordingManager.IsRecording && _frameCount % 4 == 2)
+                if ((int)_recordingManager.GetCurrentMode() == 1 && _recordingManager.IsRecording && _frameCount % 4 == 2)
                 {
                     // 모든 프레임 소스에서 현재 프레임 획득
                     var frames = new List<(Bitmap frame, long timestamp)>
@@ -397,9 +397,7 @@ namespace MultiWebcamApp
                 };
 
                 // 녹화 매니저 초기화
-                _recordingManager = new RecordingManager(frameSources);
-
-                Console.WriteLine("녹화 기능 초기화 완료");
+                _recordingManager = new RecordingManager(frameSources, @"C:\Users\dulab\Desktop");
             }
             catch (Exception ex)
             {
@@ -436,6 +434,7 @@ namespace MultiWebcamApp
             _webcamFormHead.SetKey("r");
             _webcamFormBody.SetKey("r");
             _footpadForm.SetKey("r");
+            _recordingManager.SetKey("r");
         }
 
         private void BackwardButton_Click(Object? sender, EventArgs e)
@@ -447,6 +446,7 @@ namespace MultiWebcamApp
                 _webcamFormHead.SetKey("a");
                 _webcamFormBody.SetKey("a");
                 _footpadForm.SetKey("a");
+                _recordingManager.SetKey("a");
             }
         }
 
@@ -459,6 +459,7 @@ namespace MultiWebcamApp
                 _webcamFormHead.SetKey("p");
                 _webcamFormBody.SetKey("p");
                 _footpadForm.SetKey("p");
+                _recordingManager.SetKey("p");
             }
         }
 
@@ -471,6 +472,7 @@ namespace MultiWebcamApp
                 _webcamFormHead.SetKey("d");
                 _webcamFormBody.SetKey("d");
                 _footpadForm.SetKey("d");
+                _recordingManager.SetKey("d");
             }
         }
 
@@ -483,6 +485,7 @@ namespace MultiWebcamApp
                 _webcamFormHead.SetKey("s");
                 _webcamFormBody.SetKey("s");
                 _footpadForm.SetKey("s");
+                _recordingManager.SetKey("s");
             }
         }
 
@@ -514,7 +517,7 @@ namespace MultiWebcamApp
             if (_recordingManager == null) return;
 
             // 녹화 중이면 버튼 깜빡임 효과
-            if (_recordingManager.IsRecording)
+            if (_recordingManager.IsRecording && _isStarted)
             {
                 _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
                     ? System.Drawing.Color.DarkRed
@@ -563,6 +566,8 @@ namespace MultiWebcamApp
                 _frameTimer.Stop();
                 _frameTimer.Dispose();
             }
+
+            CleanupRecordingResources();
 
             base.OnFormClosed(e);
 

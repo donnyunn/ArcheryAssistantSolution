@@ -275,9 +275,10 @@ namespace MultiWebcamApp
             try
             {
                 // _frameBuffer에서 현재 재생 중인 위치의 프레임 가져오기
-                var frameMat = _state == ICameraControl.OperationMode.Idle
-                    ? _frameMat?.Clone()
-                    : _frameBuffer?.Get(_playPoint);
+                //var frameMat = _state == ICameraControl.OperationMode.Idle
+                //    ? _frameMat?.Clone()
+                //    : _frameBuffer?.Get(_playPoint-1);
+                var frameMat = _frameMat?.Clone();
 
                 if (frameMat != null && !frameMat.Empty())
                 {
