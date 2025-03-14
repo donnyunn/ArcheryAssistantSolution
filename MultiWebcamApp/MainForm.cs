@@ -413,6 +413,7 @@ namespace MultiWebcamApp
             _delayTextbox.Text = _delaySeconds.ToString();
             _webcamFormHead.SetDelay(_delaySeconds);
             _webcamFormBody.SetDelay(_delaySeconds);
+            _footpadForm.SetDelay(_delaySeconds);
         }
 
         private void StartButton_Click(object? sender, EventArgs e)
@@ -434,6 +435,7 @@ namespace MultiWebcamApp
             UpdatePlayPauseButton();
             _webcamFormHead.SetKey("r");
             _webcamFormBody.SetKey("r");
+            _footpadForm.SetKey("r");
         }
 
         private void BackwardButton_Click(Object? sender, EventArgs e)
@@ -444,6 +446,7 @@ namespace MultiWebcamApp
                 UpdatePlayPauseButton();
                 _webcamFormHead.SetKey("a");
                 _webcamFormBody.SetKey("a");
+                _footpadForm.SetKey("a");
             }
         }
 
@@ -455,6 +458,7 @@ namespace MultiWebcamApp
                 UpdatePlayPauseButton();
                 _webcamFormHead.SetKey("p");
                 _webcamFormBody.SetKey("p");
+                _footpadForm.SetKey("p");
             }
         }
 
@@ -466,6 +470,7 @@ namespace MultiWebcamApp
                 UpdatePlayPauseButton();
                 _webcamFormHead.SetKey("d");
                 _webcamFormBody.SetKey("d");
+                _footpadForm.SetKey("d");
             }
         }
 
@@ -477,6 +482,7 @@ namespace MultiWebcamApp
                 _slowButton.BackColor = _isSlowMode ? Color.DarkGray : Color.LightGray;
                 _webcamFormHead.SetKey("s");
                 _webcamFormBody.SetKey("s");
+                _footpadForm.SetKey("s");
             }
         }
 

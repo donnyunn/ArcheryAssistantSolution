@@ -10,10 +10,11 @@ using System.Drawing.Imaging;
 using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Diagnostics;
 
 namespace MultiWebcamApp
 {
-    public partial class FootpadForm : Form, IFrameProvider
+    public partial class FootpadForm : Form, IFrameProvider, ICameraControl
     {
         private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
         private PressureMapViewer.MainWindow pressureMapWindow;
@@ -27,6 +28,24 @@ namespace MultiWebcamApp
         // 캡처 해상도 조정 (절반으로 줄임)
         private const float SCALE_FACTOR = 0.5f;
 
+        private ICameraControl.OperationMode _state = ICameraControl.OperationMode.Idle;
+        private readonly object _keyLock = new object();
+        private string _key = "";
+        private bool _keyProcessing = false;
+
+        private const int MaxBufferSize = 60 * 90 + 1;
+        private CircularBuffer2 _dataBuffer;
+        private int _playPoint = 0;
+        private int _delayPoint = 0;
+        private int _delaySeconds = 0;
+        private int _slowLevel = 1;
+        private int _slowCnt = 0;
+        private long _lastSlowUpdateTime = 0;
+        private double actualFps = 15.0;
+
+        private ushort[] combinedData = new ushort[9216]; // 96 * 96
+        private int lastProcessedQuadrant = 3;
+
         private System.Windows.Forms.Timer _renderTimer;
 
         public FootpadForm()
@@ -35,6 +54,7 @@ namespace MultiWebcamApp
             InitializeDevices();
 
             calibration = new Calibration();
+            _dataBuffer = new CircularBuffer2(MaxBufferSize, 9216);
 
             _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _renderTimer.Tick += (s, e) => renderTick(s, e);
@@ -92,8 +112,6 @@ namespace MultiWebcamApp
             pressureMapWindow.Show();
         }
 
-        private ushort[] combinedData = new ushort[9216]; // 96 * 96
-        private int lastProcessedQuadrant = 3;
         public bool UpdateFrame()
         {
             bool ret = false;
@@ -261,11 +279,9 @@ namespace MultiWebcamApp
                 if (dataUpdated)
                 {
                     // UI 업데이트
-                    //pressureMapWindow.Dispatcher.BeginInvoke(new Action(() =>
-                    //{
-                    //    pressureMapWindow.UpdatePressureData(combinedData);
-                    //}), System.Windows.Threading.DispatcherPriority.Background);
-                    pressureMapWindow.UpdatePressureData(combinedData);
+                    //pressureMapWindow.UpdatePressureData(combinedData);
+
+                    ProcessFrame(Stopwatch.GetTimestamp());
 
                     ret = true;
                 }
@@ -278,6 +294,7 @@ namespace MultiWebcamApp
             finally
             {
                 isRunning = false;
+                HandleKeyInput();
             }
 
             return ret;
@@ -467,6 +484,156 @@ namespace MultiWebcamApp
             }
 
             return (result, DateTime.Now.Ticks);
+        }
+
+        public ICameraControl.OperationMode GetCurrentMode()
+        {
+            return _state;
+        }
+
+        public void SetKey(string key)
+        {
+            lock (_keyLock)
+            {
+                if (!_keyProcessing)
+                {
+                    _key = key;
+                    _keyProcessing = true;
+                }
+            }
+        }
+
+        public void SetDelay(int delaySeconds)
+        {
+            _delayPoint = delaySeconds * (int)actualFps;
+
+            ClearBuffer();
+            _state = ICameraControl.OperationMode.Idle;
+
+            _playPoint = 0;
+            _slowLevel = 1;
+        }
+
+        public void ProcessFrame(long timestamp)
+        {
+            ushort[] data;
+            try
+            {
+                switch (_state)
+                {
+                    case ICameraControl.OperationMode.Play:
+                        _dataBuffer.Enqueue(combinedData);
+                        var countdown = 0;
+                        if (_delayPoint >= _dataBuffer.Count)
+                        {
+                            _playPoint = 0;
+                            countdown = (int)((_delayPoint - _dataBuffer.Count - 1) / actualFps) + 1;
+                        }
+                        else
+                        {
+                            _playPoint = _dataBuffer.Count - _delayPoint - 1;
+                            countdown = 0;
+                        }
+
+                        data = _dataBuffer.Get(_playPoint);
+                        pressureMapWindow.UpdatePressureData(data);
+                        break;
+                    case ICameraControl.OperationMode.Replay:
+                        long currentTime = Stopwatch.GetTimestamp();
+                        double elapsedMs = ((currentTime - _lastSlowUpdateTime) * 1000.0) / Stopwatch.Frequency;
+
+                        if (elapsedMs >= (66.67 * _slowLevel))
+                        {
+                            if (_playPoint < _dataBuffer.Count - 1)
+                            {
+                                _playPoint++;
+                                data = _dataBuffer.Get(_playPoint);
+                                pressureMapWindow.UpdatePressureData(data);
+                            }
+                            else
+                            {
+                                _state = ICameraControl.OperationMode.Stop;
+                            }
+                            _lastSlowUpdateTime = currentTime;
+                        }
+                        break;
+                    case ICameraControl.OperationMode.Stop:
+                        data = _dataBuffer.Get(_playPoint);
+                        pressureMapWindow.UpdatePressureData(data);
+                        break;
+                    case ICameraControl.OperationMode.Idle:
+                        pressureMapWindow.UpdatePressureData(combinedData);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Footpad processing error: {ex.Message}");
+            }
+        }
+
+        private void HandleKeyInput()
+        {
+            if (!_keyProcessing || string.IsNullOrEmpty(_key))
+                return;
+
+            lock (_keyLock)
+            {
+                switch (_key)
+                {
+                    case "r":
+                        _state = _state == ICameraControl.OperationMode.Idle ?
+                                ICameraControl.OperationMode.Play :
+                                ICameraControl.OperationMode.Idle;
+                        ClearBuffer();
+
+                        _playPoint = 0;
+                        _slowLevel = 1;
+                        Console.WriteLine($"Footpad state changed to: {_state}");
+                        break;
+                    case "p":
+                        _state = _state == ICameraControl.OperationMode.Play ||
+                                _state == ICameraControl.OperationMode.Replay ?
+                                ICameraControl.OperationMode.Stop :
+                                ICameraControl.OperationMode.Replay;
+                        break;
+                    case "d":
+                        if (_state != ICameraControl.OperationMode.Idle)
+                        {
+                            _state = ICameraControl.OperationMode.Stop;
+                            _playPoint = Math.Clamp(_playPoint + (int)(actualFps / 2), 0, _dataBuffer.Count - 1);
+                        }
+                        break;
+                    case "a":
+                        if (_state != ICameraControl.OperationMode.Idle)
+                        {
+                            _state = ICameraControl.OperationMode.Stop;
+                            _playPoint = Math.Clamp(_playPoint - (int)(actualFps / 2), 0, _dataBuffer.Count - 1);
+                        }
+                        break;
+                    case "s":
+                        if (_state == ICameraControl.OperationMode.Stop || _state == ICameraControl.OperationMode.Replay)
+                        {
+                            _slowLevel *= 2;
+                            if (_slowLevel > 8)
+                            {
+                                _slowLevel = 1;
+                            }
+                            _slowCnt = 0;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+
+                _key = "";
+                _keyProcessing = false;
+            }
+        }
+
+        private void ClearBuffer()
+        {
+            _dataBuffer.Clear();
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -1097,6 +1264,96 @@ namespace MultiWebcamApp
                 Port.Close();
                 Port.Dispose();
             }
+        }
+    }
+
+    public class CircularBuffer2
+    {
+        private ushort[][] _buffer;
+        private readonly object _lockObject = new object();
+        private int _start;  // 버퍼의 시작 위치
+        private int _count;  // 현재 저장된 항목 수
+        private readonly int _dataSize;
+
+        public CircularBuffer2(int capacity, int dataSize = 9216)
+        {
+            _buffer = new ushort[capacity][];
+            _start = 0;
+            _count = 0;
+            _dataSize = dataSize;
+        }
+
+        public void Enqueue(ushort[] data)
+        {
+            lock (_lockObject)
+            {
+                int index = (_start + _count) % _buffer.Length;
+                if (_count == _buffer.Length)
+                {
+                    // 버퍼가 가득 찼을 때 가장 오래된 항목 제거
+                    //_buffer[_start]?.Dispose();
+                    _start = (_start + 1) % _buffer.Length;
+                    _count--;
+                }
+                _buffer[index] = new ushort[_dataSize];
+                Array.Copy(data, _buffer[index], _dataSize);
+                _count++;
+            }
+        }
+
+        public ushort[] Get(int index)
+        {
+            lock (_lockObject)
+            {
+                if (index >= _count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+
+                ushort[] result = new ushort[_dataSize];
+                Array.Copy(_buffer[(_start + index) % _buffer.Length], result, _dataSize);
+                return result;
+            }
+        }
+
+        public ushort[] GetReference(int index)
+        {
+            lock (_lockObject)
+            {
+                if (index >= _count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+
+                return _buffer[(_start + index) % _buffer.Length];
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_lockObject)
+            {
+                Array.Clear(_buffer, 0, _buffer.Length);
+                _start = 0;
+                _count = 0;
+            }
+        }
+
+        public int Count
+        {
+            get
+            {
+                lock (_lockObject)
+                {
+                    return _count;
+                }
+            }
+        }
+
+        public int Capacity
+        {
+            get { return _buffer.Length; }
+        }
+
+        public int DataSize
+        {
+            get { return _dataSize; }
         }
     }
 }
