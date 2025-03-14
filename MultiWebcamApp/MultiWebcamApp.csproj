@@ -18,7 +18,7 @@
     <PackageReference Include="OpenCvSharp4.Windows" Version="4.10.0.20241108" />
     <PackageReference Include="RJCP.SerialPortStream" Version="3.0.1" />
     <PackageReference Include="SerialPortStream" Version="2.4.2" />
-    <PackageReference Include="System.IO.Ports" Version="9.0.2" />
+    <PackageReference Include="System.IO.Ports" Version="9.0.3" />
   </ItemGroup>
 
   <ItemGroup>

@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Runtime.InteropServices;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using SharpDX;
 
 namespace MultiWebcamApp
 {

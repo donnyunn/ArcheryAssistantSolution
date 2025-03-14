@@ -6,6 +6,10 @@ using System.Windows.Forms;
 using System.Windows.Documents;
 using RJCP.IO.Ports;
 using System.Globalization;
+using System.Drawing.Imaging;
+using System.Windows.Media.Imaging;
+using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace MultiWebcamApp
 {
@@ -19,8 +23,9 @@ namespace MultiWebcamApp
 
         private Bitmap _currentVisualization;
         private readonly object _visualizationLock = new object();
-        private Task _captureTask;
-        private bool _isCapturing = false;
+        private bool _captureInitialized = false;
+        // 캡처 해상도 조정 (절반으로 줄임)
+        private const float SCALE_FACTOR = 0.5f;
 
         private System.Windows.Forms.Timer _renderTimer;
 
@@ -283,57 +288,125 @@ namespace MultiWebcamApp
         /// </summary>
         public void InitializeForRecording()
         {
-            StartVisualizationCapture();
+            try
+            {
+                // WPF 윈도우 캡처 초기화
+                Console.WriteLine($"FootpadForm: PressureMapViewer 크기 = {pressureMapWindow.Width}x{pressureMapWindow.Height}");
+
+                // 첫 번째 캡처 수행 (테스트)
+                CaptureWindowContent();
+
+                _captureInitialized = true;
+                Console.WriteLine("FootpadForm: 녹화를 위한 캡처 기능 초기화 완료");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FootpadForm: 캡처 초기화 오류 - {ex.Message}");
+            }
         }
 
         /// <summary>
-        /// FootpadForm이 로드될 때 비주얼라이제이션 캡처 시작
+        /// WPF 윈도우 전체 내용을 캡처
         /// </summary>
-        private void StartVisualizationCapture()
+        private int logCount = 0;
+        private Bitmap CaptureWindowContent()
         {
-            if (_isCapturing) return;
-            _isCapturing = true;
+            Bitmap result = null;
 
-            _captureTask = Task.Run(async () => {
-                while (_isCapturing)
-                {
+            try
+            {
+                // UI 스레드에서 화면 캡처 수행
+                var captureTask = pressureMapWindow.Dispatcher.InvokeAsync(() => {
                     try
                     {
-                        // UI 스레드에서 WPF 비주얼 캡처
-                        var bitmap = await pressureMapWindow.Dispatcher.InvokeAsync(() => {
-                            return WpfToBitmapConverter.CaptureVisual(pressureMapWindow);
-                        });
+                        // WPF 창의 전체 내용을 캡처
+                        var visual = pressureMapWindow;
+                        int width = (int)pressureMapWindow.ActualWidth;
+                        int height = (int)pressureMapWindow.ActualHeight;
 
-                        // 비주얼라이제이션 업데이트
-                        lock (_visualizationLock)
+                        if (width <= 0 || height <= 0)
                         {
-                            _currentVisualization?.Dispose();
-                            _currentVisualization = bitmap;
+                            Console.WriteLine("FootpadForm: 창 크기가 유효하지 않음");
+                            return null;
+                        }
+
+                        // 전체 창 내용 렌더링
+                        var rtb = new RenderTargetBitmap(
+                            width, height, 96, 96, PixelFormats.Pbgra32);
+                        rtb.Render(visual);
+
+                        // 비트맵으로 변환
+                        var encoder = new BmpBitmapEncoder();
+                        encoder.Frames.Add(BitmapFrame.Create(rtb));
+
+                        using (var stream = new MemoryStream())
+                        {
+                            encoder.Save(stream);
+                            stream.Seek(0, SeekOrigin.Begin);
+
+                            // 원본 크기 비트맵
+                            var originalBitmap = new Bitmap(stream);
+
+                            // 알파 채널이 없는 비트맵으로 변환
+                            var bitmapWithoutAlpha = new Bitmap(
+                                originalBitmap.Width,
+                                originalBitmap.Height,
+                                System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+                            using (Graphics g = Graphics.FromImage(bitmapWithoutAlpha))
+                            {
+                                g.DrawImage(originalBitmap, 0, 0);
+                            }
+
+                            originalBitmap.Dispose();
+
+                            // 절반 크기로 리사이징 (성능 개선)
+                            //int newWidth = (int)(originalBitmap.Width * SCALE_FACTOR);
+                            //int newHeight = (int)(originalBitmap.Height * SCALE_FACTOR);
+                            int newWidth = 960;
+                            int newHeight = 540;
+
+                            var resizedBitmap = new Bitmap(newWidth, newHeight, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+                            using (Graphics g = Graphics.FromImage(resizedBitmap))
+                            {
+                                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                g.DrawImage(bitmapWithoutAlpha, 0, 0, newWidth, newHeight);
+                            }
+
+                            bitmapWithoutAlpha.Dispose();
+                            return resizedBitmap;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"비주얼라이제이션 캡처 오류: {ex.Message}");
+                        Console.WriteLine($"FootpadForm: 창 캡처 오류 - {ex.Message}");
+                        return null;
                     }
+                });
 
-                    // 캡처 간격 (약 15fps)
-                    await Task.Delay(66);
+                // 최대 200ms 대기 (UI 스레드 교착 상태 방지)
+                DispatcherOperationStatus completed = captureTask.Wait(TimeSpan.FromMilliseconds(200));
+
+                if (completed == DispatcherOperationStatus.Completed && captureTask.Result != null)
+                {
+                    result = captureTask.Result;
+
+                    // 디버깅용 (첫 번째 프레임에만 로그)                    
+                    if (logCount < 1)
+                    {
+                        Console.WriteLine($"FootpadForm: 압력패드 창 캡처 성공 ({result.Width}x{result.Height})");
+                        // 테스트를 위해 첫 번째 캡처 이미지 저장
+                        result.Save("C:\\Users\\dulab\\Downloads\\footpad_capture_test.png", ImageFormat.Png);
+                        logCount++;
+                    }
                 }
-            });
-        }
-
-        /// <summary>
-        /// FootpadForm이 닫힐 때 비주얼라이제이션 캡처 중지
-        /// </summary>
-        private void StopVisualizationCapture()
-        {
-            _isCapturing = false;
-
-            lock (_visualizationLock)
-            {
-                _currentVisualization?.Dispose();
-                _currentVisualization = null;
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FootpadForm: CaptureWindowContent 오류 - {ex.Message}");
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -344,23 +417,52 @@ namespace MultiWebcamApp
         {
             Bitmap result = null;
 
-            lock (_visualizationLock)
+            try
             {
-                if (_currentVisualization != null)
+                result = CaptureWindowContent();
+
+                if (result != null)
                 {
-                    // 복사본 생성 (스레드 안전 보장)
-                    result = new Bitmap(_currentVisualization);
+                    // 캡처 성공 시 이미지 저장
+                    lock (_visualizationLock)
+                    {
+                        _currentVisualization?.Dispose();
+                        _currentVisualization = new Bitmap(result);
+                    }
+                }
+                else
+                {
+                    // 캡처 실패 시 이전에 캡처된 이미지 사용
+                    lock (_visualizationLock)
+                    {
+                        if (_currentVisualization != null)
+                        {
+                            result = new Bitmap(_currentVisualization);
+                        }
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FootpadForm: GetCurrentFrame Error - {ex.Message}");
+            }
 
-            // 비주얼라이제이션이 없는 경우 빈 이미지 반환
+            // 이미지가 없는 경우 빈 이미지 생성
             if (result == null)
             {
+                // 웹캠 프레임과 동일한 크기(960x540)의 빈 이미지 생성
                 result = new Bitmap(960, 540);
                 using (Graphics g = Graphics.FromImage(result))
                 {
-                    g.Clear(Color.Black);
-                    g.DrawString("압력패드 데이터 없음", new Font("맑은 고딕", 20), Brushes.White, 10, 10);
+                    g.Clear(System.Drawing.Color.Blue);
+                    g.DrawString("압력패드 화면을 캡처할 수 없습니다",
+                        new Font("맑은 고딕", 20), System.Drawing.Brushes.White, 10, 10);
+
+                    // 대안: combinedData로부터 직접 시각화
+                    //if (combinedData != null && combinedData.Length == 9216) // 96x96
+                    //{
+                    //    DrawPressureData(g, result.Width, result.Height);
+                    //}
                 }
             }
 
@@ -370,7 +472,6 @@ namespace MultiWebcamApp
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             isRunning = false;
-            StopVisualizationCapture();
             foreach (var device in devices.Values)
             {
                 device.Close();

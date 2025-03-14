@@ -107,8 +107,7 @@ namespace MultiWebcamApp
                             _webcamFormBody.GetCurrentFrame(),
                             _footpadForm.GetCurrentFrame()
                         };
-
-                    // 녹화 처리 (비동기로 실행하여 메인 루프 블로킹 방지)
+                    
                     Task.Run(() => _recordingManager.RecordFrame(frames));
                 }
 
