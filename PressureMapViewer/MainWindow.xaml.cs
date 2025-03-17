@@ -72,7 +72,7 @@ namespace PressureMapViewer
         private const double GRID_SPACING = 0.2; // 격자 간격
 
         // 밸런스 게이지 관련
-        private const double WEIGHT_THRESHOLD = 15.0; // 유효 압력 임계값
+        private const double WEIGHT_THRESHOLD = 1.0; // 유효 압력 임계값
         private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
 
         // 시계열 그래프 관련
@@ -248,14 +248,15 @@ namespace PressureMapViewer
         }
 
         private double estimatedWeight = 0; // 추정 무게 (kg)
-        private const double CELL_SIZE = 0.0055; // 셀 한 변의 길이 (5.5mm = 0.0055m)
-        private const double CELL_AREA = CELL_SIZE * CELL_SIZE; // 각 셀의 면적 (m²)
+        private const double CELL_SIZE = 0.0055; // 셀 한 변의 길이 (5.5mm)
+        private const double CELL_AREA = CELL_SIZE * CELL_SIZE; // 각 셀의 면적 (mm²)
         private const double GRAVITY = 9.81; // 중력 가속도 (m/s²)
         private const double PRESSURE_SCALING_FACTOR = 1000.0; // 압력 보정 계수 (필요 시 조정)
         private void EstimateWeight(ushort[] data)
         {
             double totalForce = 0;
             double totalActiveCells = 0;
+            double totalPressure = 0;
 
             for (int i = 0; i < data.Length; i++)
             {
@@ -264,28 +265,30 @@ namespace PressureMapViewer
                 // 노이즈 간주
                 if (pressure > WEIGHT_THRESHOLD)
                 {
-                    double force = pressure * PRESSURE_SCALING_FACTOR * CELL_AREA; // 힘(N) = 압력(pa) * 면적(m2)
+                    double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR; // 힘(N) = 압력(kpa) * 면적(m2) * 1000
                     totalForce += force;
                     totalActiveCells++;
+                    totalPressure += pressure;
                 }
             }
 
             estimatedWeight = totalForce / GRAVITY;
 
-            UpdateWeightDisplay(estimatedWeight, totalActiveCells);
+            UpdateWeightDisplay(estimatedWeight, totalActiveCells, totalPressure);
         }
 
-        private void UpdateWeightDisplay(double weight, double activeCells)
+        private void UpdateWeightDisplay(double weight, double activeCells, double pressure)
         {
             if (activeCells < 1)
             {
                 WeightValueText.Text = "- kg";
-                ActiveCellsText.Text = "-";
+                ActiveCellsText.Text = "- kpa";
             }
             else
             {
                 WeightValueText.Text = $"{Math.Round(weight, 1)} kg";
-                ActiveCellsText.Text = $"{Math.Round(activeCells)}";
+                //ActiveCellsText.Text = $"{Math.Round(activeCells)}";
+                ActiveCellsText.Text = $"{Math.Round(pressure)} kpa";
             }
         }
 
@@ -385,17 +388,24 @@ namespace PressureMapViewer
                 Points = new PointCollection()
             };
 
+            // HeatmapImage의 부모 컨테이너 찾기
+            Grid imageParentGrid = HeatmapImage.Parent as Grid;
+
+            // 새 Canvas 생성 및 동일한 부모에 추가
             Canvas copCanvas = new Canvas();
-            Grid.SetColumn(copCanvas, 0);
-            ((Grid)Content).Children.Add(copCanvas);
+            imageParentGrid.Children.Add(copCanvas);
 
             // 궤적을 먼저 추가하고 그 위에 현재 포인트 표시
             copCanvas.Children.Add(copTrajectory);
             copCanvas.Children.Add(copIndicator);
 
             // 캔버스를 이미지와 동일한 크기로 설정
-            copCanvas.Width = HeatmapImage.ActualWidth;
-            copCanvas.Height = HeatmapImage.ActualHeight;
+            //copCanvas.Width = HeatmapImage.ActualWidth;
+            //copCanvas.Height = HeatmapImage.ActualHeight;
+            
+            // HeatmapImage와 동일한 정렬 설정
+            copCanvas.HorizontalAlignment = HorizontalAlignment.Center;
+            copCanvas.VerticalAlignment = VerticalAlignment.Center;
 
             // 이미지 크기 변경 이벤트 처리
             HeatmapImage.SizeChanged += (s, e) =>
@@ -404,6 +414,10 @@ namespace PressureMapViewer
                 copCanvas.Height = HeatmapImage.ActualHeight;
                 UpdateTrajectoryPoints();
             };
+
+            // 초기 크기 설정
+            copCanvas.Width = HeatmapImage.ActualWidth;
+            copCanvas.Height = HeatmapImage.ActualHeight;
         }
 
         private void UpdateTrajectoryPoints()
@@ -1069,13 +1083,13 @@ namespace PressureMapViewer
             value = Math.Clamp(value, 0, 1);
 
             if (value < 0.1f)
-                return Color.FromRgb(0, 0, (byte)(255 * (value / 0.2f)));
+                return Color.FromRgb(0, 0, (byte)(255 * (value / 0.1f)));
             else if (value < 0.2f)
-                return Color.FromRgb(0, (byte)(255 * ((value - 0.2f) / 0.2f)), 255);
+                return Color.FromRgb(0, (byte)(255 * ((value - 0.1f) / 0.1f)), 255);
             else if (value < 0.4f)
-                return Color.FromRgb((byte)(255 * ((value - 0.4f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.4f) / 0.2f)));
+                return Color.FromRgb((byte)(255 * ((value - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.2f) / 0.2f)));
             else if (value < 0.8f)
-                return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.6f) / 0.2f)), 0);
+                return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.4f) / 0.4f)), 0);
             else
                 return Color.FromRgb(255, 0, 0);
         }

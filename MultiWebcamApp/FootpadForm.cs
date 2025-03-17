@@ -18,6 +18,13 @@ namespace MultiWebcamApp
 {
     public partial class FootpadForm : Form, IFrameProvider, ICameraControl
     {
+        // 제조사 가이드에 따른 COM 포트 배치
+        // 1사분면(좌측 상단): COM3 -> 장치 인덱스 0
+        // 2사분면(좌측 하단): COM4 -> 장치 인덱스 1
+        // 3사분면(우측 상단): COM5 -> 장치 인덱스 2
+        // 4사분면(우측 하단): COM6 -> 장치 인덱스 3
+        private string[] _portNames = { "COM3", "COM4", "COM5", "COM6" };
+
         private Dictionary<int, FootpadDevice> devices = new Dictionary<int, FootpadDevice>();
         private PressureMapViewer.MainWindow pressureMapWindow;
         private readonly object dataLock = new object();
@@ -58,7 +65,7 @@ namespace MultiWebcamApp
             calibration = new Calibration();
             _dataBuffer = new CircularBuffer2(MaxBufferSize, 9216);
 
-            _renderTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _renderTimer = new System.Windows.Forms.Timer { Interval = 5000 };
             _renderTimer.Tick += (s, e) => renderTick(s, e);
             _renderTimer.Start();
         }
@@ -73,24 +80,17 @@ namespace MultiWebcamApp
 
         private void InitializeDevices()
         {
-            // 제조사 가이드에 따른 COM 포트 배치
-            // 1사분면(좌측 상단): COM3 -> 장치 인덱스 0
-            // 2사분면(좌측 하단): COM4 -> 장치 인덱스 1
-            // 3사분면(우측 상단): COM5 -> 장치 인덱스 2
-            // 4사분면(우측 하단): COM6 -> 장치 인덱스 3
-            string[] portNames = { "COM3", "COM4", "COM5", "COM6" };
-
             // 각 포트에 해당하는 사분면 인덱스를 초기화
-            for (int i = 0; i < portNames.Length; i++)
+            for (int i = 0; i < _portNames.Length; i++)
             {
                 try
                 {
-                    devices[i] = new FootpadDevice(portNames[i], i);
-                    Console.WriteLine($"초기화 성공: 사분면 {i + 1} - {portNames[i]}");
+                    devices[i] = new FootpadDevice(_portNames[i], i);
+                    Console.WriteLine($"초기화 성공: 사분면 {i + 1} - {_portNames[i]}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"초기화 실패: 사분면 {i + 1} - {portNames[i]}: {ex.Message}");
+                    Console.WriteLine($"초기화 실패: 사분면 {i + 1} - {_portNames[i]}: {ex.Message}");
                 }
             }
         }
@@ -112,6 +112,72 @@ namespace MultiWebcamApp
             pressureMapWindow.Height = screenBounds.Height;
             
             pressureMapWindow.Show();
+        }
+
+        public void ResetAllPorts()
+        {
+            _renderTimer.Stop();
+            isRunning = true;
+            _renderTimer.Start();
+            Task.Run(() =>
+            {
+                try
+                {
+                    Console.WriteLine("모든 COM 포트 재설정 시작...");
+
+                    // 모든 장치의 포트 닫기
+                    foreach (var device in devices.Values)
+                    {
+                        try
+                        {
+                            device.Close();
+                            Console.WriteLine($"사분면 {device.QuadrantIndex + 1} - 포트 닫기 성공");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"사분면 {device.QuadrantIndex + 1} - 포트 닫기 실패: {ex.Message}");
+                        }
+                    }
+
+                    // 잠시 대기하여 포트가 완전히 닫히도록 함
+                    System.Threading.Thread.Sleep(1000);
+
+                    // 모든 장치 다시 초기화
+                    for (int i = 0; i < _portNames.Length; i++)
+                    {
+                        try
+                        {
+                            if (devices.ContainsKey(i))
+                            {
+                                // 기존 장치가 있는 경우 해당 포트 다시 열기
+                                devices[i] = new FootpadDevice(_portNames[i], i);
+                                Console.WriteLine($"사분면 {i + 1} - {_portNames[i]} 재연결 성공");
+                            }
+                            else
+                            {
+                                // 기존 장치가 없는 경우 새로 생성
+                                devices[i] = new FootpadDevice(_portNames[i], i);
+                                Console.WriteLine($"사분면 {i + 1} - {_portNames[i]} 신규 연결 성공");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"사분면 {i + 1} - {_portNames[i]} 연결 실패: {ex.Message}");
+                        }
+                    }
+
+                    // 첫 번째 프레임 업데이트 시도
+                    //isRunning = false;
+                    //UpdateFrameAll();
+                    isRunning = false;
+
+                    Console.WriteLine("모든 COM 포트 재설정 완료");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"포트 재설정 중 오류 발생: {ex.Message}");
+                }
+            });
         }
 
         public bool UpdateFrame()
@@ -231,7 +297,8 @@ namespace MultiWebcamApp
                         if (deviceHasData)
                         {
                             // 캘리브레이션 처리
-                            quadrantData[currentQuadrant] = calibration.Work(device.LastData, currentQuadrant);
+                            //quadrantData[currentQuadrant] = calibration.Work(device.LastData, currentQuadrant);
+                            quadrantData[currentQuadrant] = device.LastData;
                             return true;
                         }
 
@@ -251,7 +318,6 @@ namespace MultiWebcamApp
 
                         if (deviceData != null)
                         {
-
                             // 48x48 사분면 데이터를 96x96 combinedData에 복사
                             // 세로로 먼저 증가(위에서 아래로), 그 다음 가로 방향으로 이동
                             for (int col = 0; col < 48; col++)
@@ -702,6 +768,13 @@ namespace MultiWebcamApp
                         _playPoint = 0;
                         _slowLevel = 1;
                         Console.WriteLine($"Footpad state changed to: {_state}");
+
+                        // Idle 상태로 변경된 경우에만 포트 재설정
+                        if (_state == ICameraControl.OperationMode.Idle)
+                        {
+                            Console.WriteLine("Resetting ports after returning to Idle state");
+                            ResetAllPorts();
+                        }
                         break;
                     case "p":
                         _state = _state == ICameraControl.OperationMode.Play ||
@@ -1050,6 +1123,7 @@ namespace MultiWebcamApp
 
         public bool ProcessResponseAndSendRequest()
         {
+            if (Port?.IsDisposed == true) return false;
             if (!Port?.IsOpen == true || isProcessing) return false;
 
             isProcessing = true;
@@ -1374,9 +1448,17 @@ namespace MultiWebcamApp
         {
             if (Port?.IsOpen == true)
             {
+                // 입출력 버퍼 비우기
+                Port.DiscardInBuffer();
+                Port.DiscardOutBuffer();
+
+                // 포트 닫기
                 Port.Close();
-                Port.Dispose();
             }
+
+            // 명시적 Dispose 호출
+            Port?.Dispose();
+            Port = null;
         }
     }
 

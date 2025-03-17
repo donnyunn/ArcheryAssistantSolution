@@ -14,9 +14,9 @@ namespace MultiWebcamApp
 {
     public partial class MainForm : Form
     {
-        private WebcamForm _webcamFormHead;
-        private WebcamForm _webcamFormBody;
-        private FootpadForm _footpadForm;
+        private WebcamForm _webcamFormHead = new WebcamForm(0);
+        private WebcamForm _webcamFormBody = new WebcamForm(1);
+        private FootpadForm _footpadForm = new FootpadForm();
         private int _delaySeconds = 0; 
         private bool _isStarted = false;
         private bool _isPaused = false;
@@ -80,6 +80,15 @@ namespace MultiWebcamApp
             {
                 long frameStartTime = _mainStopwatch.ElapsedMilliseconds;
 
+                // FPS 계산
+                _frameCount++;
+                if (frameStartTime - _lastFpsCheck >= 1000)
+                {
+                    Console.WriteLine($"Camera FPS: {_frameCount}");
+                    _frameCount = 0;
+                    _lastFpsCheck = frameStartTime;
+                }
+
                 // 프레임 처리
                 if (_frameCount % 4 == 0)
                 {
@@ -109,16 +118,6 @@ namespace MultiWebcamApp
                         };
                     
                     Task.Run(() => _recordingManager.RecordFrame(frames));
-                }
-
-                _frameCount++;
-
-                // FPS 계산
-                if (frameStartTime - _lastFpsCheck >= 1000)
-                {
-                    Console.WriteLine($"Camera FPS: {_frameCount}");
-                    _frameCount = 0;
-                    _lastFpsCheck = frameStartTime;
                 }
             }
             catch (Exception ex)
@@ -331,9 +330,9 @@ namespace MultiWebcamApp
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            _webcamFormHead = new WebcamForm(0);
-            _webcamFormBody = new WebcamForm(1);
-            _footpadForm = new FootpadForm();
+            //_webcamFormHead = new WebcamForm(0);
+            //_webcamFormBody = new WebcamForm(1);
+            //_footpadForm = new FootpadForm();
 
             var screens = Screen.AllScreens;
             if (screens.Length > 3)
@@ -416,7 +415,6 @@ namespace MultiWebcamApp
 
         private void StartButton_Click(object? sender, EventArgs e)
         {
-            _mainStopwatch.Restart();
             _isStarted = !_isStarted;
             if (_isStarted)
             {
