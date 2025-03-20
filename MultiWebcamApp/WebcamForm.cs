@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using System.Windows.Interop;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using SharpDX.Direct3D9;
 using SharpDX.DXGI;
 
 namespace MultiWebcamApp
@@ -29,7 +30,7 @@ namespace MultiWebcamApp
         private int _slowCnt = 0;
         private long _lastSlowUpdateTime = 0;
 
-        private readonly Mat _frameMat;
+        private Mat _frameMat;
 
         // 재생 상태 관리
         private ICameraControl.OperationMode _state = ICameraControl.OperationMode.Idle;
@@ -38,6 +39,13 @@ namespace MultiWebcamApp
         private double actualFps = 30.0;
         private bool _keyProcessing = false;
         private object _keyLock = new object();
+
+        private CancellationTokenSource _cts;
+        ConcurrentQueue<Mat> _frameQueue = new ConcurrentQueue<Mat>();
+        private int _maxQueueSize = 2;
+        private object _queueLock = new object();
+        Task _taskCamera = null;
+        Task _taskWork = null;
 
         public WebcamForm(int cameraIndex)
         {
@@ -67,63 +75,147 @@ namespace MultiWebcamApp
             _viewer.Show();
 
             // 웹캠 캡처 시작
-            Task.Run(() => StartCamera());
+            _ = StartCamera().ContinueWith(t =>
+            {
+                if (t.IsFaulted && t.Exception != null)
+                {
+                    Console.WriteLine($"카메라 {_cameraIndex} 시작 중 오류: {t.Exception.InnerException?.Message}");
+                }
+            });
+
+            _ = mainWork();
         }
 
-        private void StartCamera()
+        private async Task StartCamera()
         {
-            _capture = new VideoCapture(_cameraIndex, VideoCaptureAPIs.DSHOW);
-            if (!_capture.IsOpened())
+            try
             {
-                Console.WriteLine($"카메라 {_cameraIndex}를 열 수 없습니다.");
-                return;
+                _capture = new VideoCapture(_cameraIndex, VideoCaptureAPIs.DSHOW);
+                if (!_capture.IsOpened())
+                {
+                    Console.WriteLine($"카메라 {_cameraIndex}를 열 수 없습니다.");
+                    return;
+                }
+
+                _capture.Set(VideoCaptureProperties.FrameWidth, 960);
+                _capture.Set(VideoCaptureProperties.FrameHeight, 540);
+                _capture.Set(VideoCaptureProperties.Fps, 30.0f);
+
+                actualFps = _capture.Get(VideoCaptureProperties.Fps);
+                Console.WriteLine($"{actualFps}");
+
+                for (int i = 0; i < 5; i++) // 5 프레임 버리기
+                {
+                    _capture.Read(new Mat());
+                }
+
+                _cts = new CancellationTokenSource();
+
+                await CameraLoop(_cts.Token);
             }
-
-            _capture.Set(VideoCaptureProperties.FrameWidth, 960);
-            _capture.Set(VideoCaptureProperties.FrameHeight, 540);
-            _capture.Set(VideoCaptureProperties.Fps, 60.0f);
-
-            actualFps = _capture.Get(VideoCaptureProperties.Fps);
-            Console.WriteLine($"{actualFps}");
-
-            for (int i = 0; i < 5; i++) // 5 프레임 버리기
+            catch (Exception ex)
             {
-                _capture.Read(new Mat());
+                Console.WriteLine($"카메라 {_cameraIndex} 시작 오류: {ex.Message}");
+                CleanupCamera();
             }
+        }
+
+        private async Task CameraLoop(CancellationToken cancellationToken)
+        {
+            Mat frame = new Mat();
+
+            _taskCamera = Task.Run(() =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        // 프레임 읽어 두기
+                        if (_capture.IsOpened())
+                        {
+                            if (_capture.Read(frame) && !frame.Empty())
+                            {
+                                EnqueueFrame(frame.Flip(FlipMode.Y));
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // 정상적인 취소
+                        Console.WriteLine($"카메라 {_cameraIndex} 루프 종료");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"카메라 {_cameraIndex} 루프 오류: {ex.Message}");
+                    }
+
+                    //Task.Delay(1, cancellationToken);
+                }
+            });
+            await _taskCamera;
+        }
+
+        private void EnqueueFrame(Mat frame)
+        {
+            lock (_queueLock)
+            {
+                if (_frameQueue.Count >= _maxQueueSize)
+                {
+                    if (_frameQueue.TryDequeue(out Mat oldFrame))
+                    {
+                        oldFrame.Dispose();
+                    }
+                }
+
+                _frameQueue.Enqueue(frame.Clone());
+                _frameMat = frame.Clone();
+            }
+        }
+
+        private async Task mainWork()
+        {
+            _taskWork = Task.Run(() =>
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    if (_frameQueue.TryDequeue(out Mat frame))
+                    {
+                        try
+                        {
+                            ProcessFrameInternal(frame, 0);
+                        }
+                        finally
+                        {
+                            //frame.Dispose();
+                            HandleKeyInput();
+                        }
+                    }
+                }
+            });
+            await _taskWork;
         }
 
         public void work(long timestamp)
         {
-            ProcessFrame(timestamp);
+            //ProcessFrame(timestamp);
+
+            if (_frameQueue.TryDequeue(out Mat frame))
+            {
+                try
+                {
+                    ProcessFrameInternal(frame, timestamp);
+                }
+                finally
+                {
+                    //frame.Dispose();
+                    HandleKeyInput();
+                }
+            }
         }
 
         public ICameraControl.OperationMode GetCurrentMode()
         {
             return _state;
-        }
-
-        public void ProcessFrame(long timestamp)
-        {
-            try
-            {
-                if (_capture == null || !_capture.IsOpened())
-                    return;
-                
-                if (_capture.Read(_frameMat) && !_frameMat.Empty())
-                {
-                    var frame = _frameMat.Flip(FlipMode.Y);
-                    ProcessFrameInternal(frame, timestamp);
-                    frame.Dispose();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Frame cpature error: {ex.Message}");
-            }
-            finally
-            {
-                HandleKeyInput();
-            }
         }
 
         private void ProcessFrameInternal(Mat frame, long timestamp)
@@ -314,9 +406,27 @@ namespace MultiWebcamApp
 
         private void WebcamForm_FormClosing(object? sender, FormClosingEventArgs e)
         {
+            CleanupCamera();
             _viewer.Close();
-            _capture?.Release();
-            _capture?.Dispose();
+        }
+
+        private void CleanupCamera()
+        {
+            if (_cts != null)
+            {
+                _cts.Cancel();
+                _taskCamera.Wait();
+                _taskWork.Wait();
+                _cts.Dispose();
+                _cts = null;
+            }
+
+            if (_capture != null && _capture.IsOpened())
+            {
+                _capture.Release();
+                _capture.Dispose();
+                _capture = null;
+            }
         }
     }
 

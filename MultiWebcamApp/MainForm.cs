@@ -14,9 +14,9 @@ namespace MultiWebcamApp
 {
     public partial class MainForm : Form
     {
-        private WebcamForm _webcamFormHead = new WebcamForm(0);
-        private WebcamForm _webcamFormBody = new WebcamForm(1);
-        private FootpadForm _footpadForm = new FootpadForm();
+        private WebcamForm _webcamFormHead;
+        private WebcamForm _webcamFormBody;
+        private FootpadForm _footpadForm;
         private int _delaySeconds = 0; 
         private bool _isStarted = false;
         private bool _isPaused = false;
@@ -44,6 +44,10 @@ namespace MultiWebcamApp
 
         public MainForm()
         {
+            _webcamFormHead = new WebcamForm(0);
+            _webcamFormBody = new WebcamForm(1);
+            _footpadForm = new FootpadForm();
+
             InitializeComponent();
             InitializeCustomControls();
 
@@ -70,7 +74,7 @@ namespace MultiWebcamApp
         }
 
         // 타이머 이벤트 핸들러
-        private void FrameTimer_Tick(object? sender, EventArgs e)
+        private async void FrameTimer_Tick(object? sender, EventArgs e)
         {
             if (_isProcessing || _cancellationTokenSource == null || _cancellationTokenSource.IsCancellationRequested)
                 return;
@@ -80,34 +84,40 @@ namespace MultiWebcamApp
             {
                 long frameStartTime = _mainStopwatch.ElapsedMilliseconds;
 
-                // FPS 계산
+                //// FPS 계산
                 _frameCount++;
-                if (frameStartTime - _lastFpsCheck >= 1000)
-                {
-                    Console.WriteLine($"Camera FPS: {_frameCount}");
-                    _frameCount = 0;
-                    _lastFpsCheck = frameStartTime;
-                }
+                //if (frameStartTime - _lastFpsCheck >= 1000)
+                //{
+                //    Console.WriteLine($"Camera FPS: {_frameCount}");
+                //    _frameCount = 0;
+                //    _lastFpsCheck = frameStartTime;
+                //}
 
-                // 프레임 처리
-                if (_frameCount % 4 == 0)
-                {
-                    _ = Task.WhenAll(
-                        Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                        Task.Run(() => _webcamFormBody.work(frameStartTime)),
-                        Task.Run(() => _footpadForm.UpdateFrameAll())
-                    );
-                }
-                else
-                {
-                    _ = Task.WhenAll(
-                        Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                        Task.Run(() => _webcamFormBody.work(frameStartTime))
-                    );
-                }
+                //// 프레임 처리
+                //if (_frameCount % 4 == 0)
+                //{
+                //    _ = Task.WhenAll(
+                //        Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                //        Task.Run(() => _webcamFormBody.work(frameStartTime)),
+                //        Task.Run(() => _footpadForm.UpdateFrameAll())
+                //    );
+                //}
+                //else
+                //{
+                //    _ = Task.WhenAll(
+                //        Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                //        Task.Run(() => _webcamFormBody.work(frameStartTime))
+                //    );
+                //}
+
+                //_ = Task.WhenAll(
+                //    Task.Run(() => _webcamFormHead.work(frameStartTime)),
+                //    Task.Run(() => _webcamFormBody.work(frameStartTime))
+                //);
+                //await tasks;
 
                 // 녹화 기능 추가: 녹화 중이면 현재 프레임 저장
-                if ((int)_recordingManager.GetCurrentMode() == 1 && _recordingManager.IsRecording && _frameCount % 4 == 2)
+                if ((int)_recordingManager.GetCurrentMode() == 1 && _recordingManager.IsRecording && _frameCount % 2 == 0)
                 {
                     // 모든 프레임 소스에서 현재 프레임 획득
                     var frames = new List<(Bitmap frame, long timestamp)>
@@ -330,10 +340,6 @@ namespace MultiWebcamApp
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            //_webcamFormHead = new WebcamForm(0);
-            //_webcamFormBody = new WebcamForm(1);
-            //_footpadForm = new FootpadForm();
-
             var screens = Screen.AllScreens;
             if (screens.Length > 3)
             {

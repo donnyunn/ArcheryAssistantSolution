@@ -14,6 +14,5 @@ namespace MultiWebcamApp
         OperationMode GetCurrentMode();
         void SetKey(string key);
         void SetDelay(int delaySeconds);
-        void ProcessFrame(long timestamp);
     }
 }
