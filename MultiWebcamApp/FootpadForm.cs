@@ -65,9 +65,9 @@ namespace MultiWebcamApp
             calibration = new Calibration();
             _dataBuffer = new CircularBuffer2(MaxBufferSize, 9216);
 
-            _renderTimer = new System.Windows.Forms.Timer { Interval = 5000 };
-            _renderTimer.Tick += (s, e) => renderTick(s, e);
-            _renderTimer.Start();
+            //_renderTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            //_renderTimer.Tick += (s, e) => renderTick(s, e);
+            //_renderTimer.Start();
         }
 
         private void renderTick(Object? sender, EventArgs e)

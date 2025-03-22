@@ -9,138 +9,223 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Multimedia;
+using OpenCvSharp;
+using OpenCvSharp.Extensions;
+using System.Reflection.Metadata;
 
 namespace MultiWebcamApp
 {
     public partial class MainForm : Form
     {
-        private WebcamForm _webcamFormHead;
-        private WebcamForm _webcamFormBody;
-        private FootpadForm _footpadForm;
-        private int _delaySeconds = 0; 
+        private readonly SyncManager _syncManager;
+        private readonly FrameBuffer _buffer;
+        private Task _renderingTask;
+        private CancellationTokenSource _renderingCts;
+
+        private OperationMode _mode = OperationMode.Idle;
+        private readonly CameraViewer.MainWindow _headDisplay, _bodyDisplay;
+        private readonly PressureMapViewer.MainWindow _pressureDisplay;
+
+        private const double FPS = 30.0;
+        private int _slowLevel = 1;
+
+        private int _delaySeconds = 0;
         private bool _isStarted = false;
         private bool _isPaused = false;
         private bool _isSlowMode = false;
 
+        private System.Windows.Forms.Timer _recordingStatusTimer;
         private System.Windows.Forms.Timer _backwardTimer;
         private System.Windows.Forms.Timer _forwardTimer;
         private System.Windows.Forms.Timer _backwardInitialTimer;
         private System.Windows.Forms.Timer _forwardInitialTimer;
-
-        // 멀티미디어 타이머 추가
-        private Multimedia.Timer _frameTimer;
-        private bool _isProcessing = false;
-        private long _frameCount = 0;
-        private long _lastFpsCheck = 0;
-
-        // 프레임 레이트 설정
-        private const int TARGET_FPS = 60;
-        private readonly int _frameTimeMs;
-
-        private RecordingManager _recordingManager;
-        private System.Windows.Forms.Timer _recordingStatusTimer;
-
-        private readonly Stopwatch _mainStopwatch = new Stopwatch();
+        
+        private volatile bool _isClosing; // 종료 중 플래그
 
         public MainForm()
         {
-            _webcamFormHead = new WebcamForm(0);
-            _webcamFormBody = new WebcamForm(1);
-            _footpadForm = new FootpadForm();
-
             InitializeComponent();
             InitializeCustomControls();
 
+            _buffer = new FrameBuffer();
+            var sources = new IFrameSource[] { new WebcamSource(0), new WebcamSource(1), new PressurePadSource() };
+            _syncManager = new SyncManager(sources, _buffer);
+
+            _headDisplay = new CameraViewer.MainWindow();
+            _bodyDisplay = new CameraViewer.MainWindow();
+            _pressureDisplay = new PressureMapViewer.MainWindow();
+
             // 프레임 시간 계산 (밀리초)
-            _frameTimeMs = (int)(1000.0 / TARGET_FPS);
+            //_frameTimeMs = (int)(1000.0 / TARGET_FPS);
 
             // 멀티미디어 타이머 초기화
-            InitializeMultimediaTimer();
+            //InitializeMultimediaTimer();
 
-            _mainStopwatch.Start();
+            //_mainStopwatch.Start();
         }
 
-        // 멀티미디어 타이머 초기화 메서드
-        private void InitializeMultimediaTimer()
+        private void MainForm_Load(object sender, EventArgs e)
         {
-            _frameTimer = new Multimedia.Timer();
-            _frameTimer.Period = _frameTimeMs+1;   // 예: 60fps에 해당하는 16.67ms
-            _frameTimer.Resolution = 1;          // 최고 해상도
-            _frameTimer.Mode = TimerMode.Periodic;
-            _frameTimer.SynchronizingObject = this;  // UI 스레드와 동기화
+            var screens = Screen.AllScreens;
 
-            // 타이머 이벤트 핸들러 등록
-            _frameTimer.Tick += new EventHandler(FrameTimer_Tick);
-        }
-
-        // 타이머 이벤트 핸들러
-        private async void FrameTimer_Tick(object? sender, EventArgs e)
-        {
-            if (_isProcessing || _cancellationTokenSource == null || _cancellationTokenSource.IsCancellationRequested)
-                return;
-
-            _isProcessing = true;
-            try
+            if (screens.Length > 3)
             {
-                long frameStartTime = _mainStopwatch.ElapsedMilliseconds;
+                var orderedScreens = screens.OrderBy(s => s.Bounds.Y).ToList();
 
-                //// FPS 계산
-                _frameCount++;
-                //if (frameStartTime - _lastFpsCheck >= 1000)
-                //{
-                //    Console.WriteLine($"Camera FPS: {_frameCount}");
-                //    _frameCount = 0;
-                //    _lastFpsCheck = frameStartTime;
-                //}
+                var monitor1 = orderedScreens[0];
+                _headDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
+                _headDisplay.WindowStyle = System.Windows.WindowStyle.None;
+                _headDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
+                _headDisplay.Left = monitor1.Bounds.Left;
+                _headDisplay.Top = monitor1.Bounds.Top;
+                _headDisplay.Width = monitor1.Bounds.Width;
+                _headDisplay.Height = monitor1.Bounds.Height;
 
-                //// 프레임 처리
-                //if (_frameCount % 4 == 0)
-                //{
-                //    _ = Task.WhenAll(
-                //        Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                //        Task.Run(() => _webcamFormBody.work(frameStartTime)),
-                //        Task.Run(() => _footpadForm.UpdateFrameAll())
-                //    );
-                //}
-                //else
-                //{
-                //    _ = Task.WhenAll(
-                //        Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                //        Task.Run(() => _webcamFormBody.work(frameStartTime))
-                //    );
-                //}
+                var monitor2 = orderedScreens[1];
+                this.StartPosition = FormStartPosition.Manual;
+                this.Location = monitor2.WorkingArea.Location;
+                this.Size = monitor2.WorkingArea.Size;
+                this.FormBorderStyle = FormBorderStyle.None;
+                this.WindowState = FormWindowState.Maximized;
 
-                //_ = Task.WhenAll(
-                //    Task.Run(() => _webcamFormHead.work(frameStartTime)),
-                //    Task.Run(() => _webcamFormBody.work(frameStartTime))
-                //);
-                //await tasks;
+                var monitor3 = orderedScreens[2];
+                _bodyDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
+                _bodyDisplay.WindowStyle = System.Windows.WindowStyle.None;
+                _bodyDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
+                _bodyDisplay.Left = monitor3.Bounds.Left;
+                _bodyDisplay.Top = monitor3.Bounds.Top;
+                _bodyDisplay.Width = monitor3.Bounds.Width;
+                _bodyDisplay.Height = monitor3.Bounds.Height;
 
-                // 녹화 기능 추가: 녹화 중이면 현재 프레임 저장
-                if ((int)_recordingManager.GetCurrentMode() == 1 && _recordingManager.IsRecording && _frameCount % 2 == 0)
+                var monitor0 = orderedScreens[3];
+                _pressureDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
+                _pressureDisplay.WindowStyle = System.Windows.WindowStyle.None;
+                _pressureDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
+                _pressureDisplay.Left = monitor0.Bounds.Left;
+                _pressureDisplay.Top = monitor0.Bounds.Top;
+                _pressureDisplay.Width = monitor0.Bounds.Width;
+                _pressureDisplay.Height = monitor0.Bounds.Height;
+            }
+
+            this.Location = new System.Drawing.Point(0, 720);
+            _headDisplay.Show();
+            _bodyDisplay.Show();
+            _pressureDisplay.Show();
+
+            _syncManager.Start();
+            StartRendering();
+        }
+
+        private async void StartRendering()
+        {
+            _renderingCts = new CancellationTokenSource();
+            _renderingTask = Task.Run(() => RenderLoop(_renderingCts.Token));
+        }
+
+        private async Task RenderLoop(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                FrameData frame = null;
+                var msgLower = "";
+                var msgUpper = "";
+                switch (_mode)
                 {
-                    // 모든 프레임 소스에서 현재 프레임 획득
-                    var frames = new List<(Bitmap frame, long timestamp)>
+                    case OperationMode.Idle:
+                        if (_syncManager.TryGetFrame(out frame))
                         {
-                            _webcamFormHead.GetCurrentFrame(),
-                            _webcamFormBody.GetCurrentFrame(),
-                            _footpadForm.GetCurrentFrame()
-                        };
-                    
-                    Task.Run(() => _recordingManager.RecordFrame(frames));
+                            msgLower = statusMessage(_buffer.PlayPosition / FPS);
+                            break;
+                        }
+                        await Task.Delay(10);
+                        break;
+                    case OperationMode.Play:
+                        if (_syncManager.TryGetFrame(out frame))
+                        {
+                            _buffer.Add(frame);
+                            _buffer.PlayPosition++;
+
+                            int delayFrames = _delaySeconds * (int)FPS;
+                            int playPosition;
+                            
+                            if (delayFrames >= _buffer.Count)
+                            {
+                                playPosition = 0;
+                                int remainingFrames = delayFrames - _buffer.Count + 1;
+                                int countdownSeconds = (int)(remainingFrames / FPS) + 1;
+                                msgLower = statusMessage(_buffer.Count / FPS);
+                                msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "▶";
+                            }
+                            else
+                            {
+                                playPosition = _buffer.Count - delayFrames - 1;
+                                msgLower = statusMessage(playPosition / FPS);
+                                msgUpper = "▶";
+                            }
+
+                            frame = _buffer.GetFrame(playPosition);
+                            break;
+                        }
+                        await Task.Delay(10);
+                        break;
+                    case OperationMode.Replay:
+                        if (_syncManager.TryGetFrame(out _))
+                        {
+                            frame = _buffer.GetFrame(_buffer.PlayPosition);
+                            if (frame != null)
+                            {
+                                _buffer.PlayPosition = (_buffer.PlayPosition + 1) % _buffer.Count;
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS);
+                                msgUpper = " ";
+                                await Task.Delay((int)(33.33 * _slowLevel), token);
+                                break;
+                            }
+                        }
+                        await Task.Delay(10, token);
+                        break;
+                    case OperationMode.Stop:
+                        if (_syncManager.TryGetFrame(out _))
+                        {
+                            frame = _buffer.GetFrame(_buffer.PlayPosition);
+                            if (frame != null)
+                            {
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS);
+                                msgUpper = " ";
+                                break;
+                            }
+                        }
+                        await Task.Delay(33, token);
+                        break;
+                }
+
+                if (frame != null && !token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        Invoke(new Action(() => UpdateUI(frame, msgLower, msgUpper)));
+                    }
+                    catch (ObjectDisposedException) { break; }
+                    catch (InvalidOperationException) { break; }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-            finally
-            {
-                _isProcessing = false;
-            }
         }
 
-        private CancellationTokenSource? _cancellationTokenSource;
+        private void UpdateUI(FrameData frame, string msg = "", string msg2 = "")
+        {
+            _headDisplay.UpdateFrame(frame.WebcamHead, msg, msg2);
+            _bodyDisplay.UpdateFrame(frame.WebcamBody, msg, msg2);
+            _pressureDisplay.UpdatePressureData(frame.PressureData);
+        }
+
+        private string statusMessage(double seconds, int slowLevel = 1)
+        {
+            string message = "";
+
+            message += $"{seconds,5:F1}s\t ";
+            message += $"x{1.0 / slowLevel,1:F2}";
+
+            return message;
+        }
 
         private void InitializeCustomControls()
         {
@@ -150,13 +235,13 @@ namespace MultiWebcamApp
             int x = margin, y = margin + 90;
 
             // MainForm 속성
-            this.Location = new Point(0, 1080);
-            this.Size = new Size(2560, 720);
+            this.Location = new System.Drawing.Point(0, 1080);
+            this.Size = new System.Drawing.Size(2560, 720);
             this.BackColor = Color.GhostWhite;
 
             // 종료 버튼 속성
-            _closeButton.Location = new Point(x, y);
-            _closeButton.Size = new Size(width, height);
+            _closeButton.Location = new System.Drawing.Point(x, y);
+            _closeButton.Size = new System.Drawing.Size(width, height);
             _closeButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
             _closeButton.BackColor = Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
@@ -166,17 +251,18 @@ namespace MultiWebcamApp
             x += width + margin;
 
             // 지연 시간 트랙바 속성
-            _delayTextbox.Location = new Point(x + margin / 2, y + margin / 2);
-            _delayTextbox.Size = new Size(margin * 2, margin);
+            _delayTextbox.Location = new System.Drawing.Point(x + margin / 2, y + margin / 2);
+            _delayTextbox.Size = new System.Drawing.Size(margin * 2, margin);
             _delayTextbox.Font = new Font("Calibri", margin, FontStyle.Bold);
             _delayTextbox.TextAlign = HorizontalAlignment.Center;
             _delayTextbox.BackColor = Color.Black;
             _delayTextbox.ForeColor = Color.Red;
             _delayTextbox.BorderStyle = BorderStyle.FixedSingle;
             _delayTextbox.Text = "0";
+            _delayTextbox.ReadOnly = true;
 
-            _delaySlider.Location = new Point(x, y + height - margin);
-            _delaySlider.Size = new Size(width, height);
+            _delaySlider.Location = new System.Drawing.Point(x, y + height - margin);
+            _delaySlider.Size = new System.Drawing.Size(width, height);
             _delaySlider.Minimum = 0;
             _delaySlider.Maximum = 20;
             _delaySlider.TickFrequency = 1;
@@ -187,8 +273,8 @@ namespace MultiWebcamApp
             x += width + margin;
 
             // 시작버튼 속성
-            _startButton.Location = new Point(x, y);
-            _startButton.Size = new Size(width, height);
+            _startButton.Location = new System.Drawing.Point(x, y);
+            _startButton.Size = new System.Drawing.Size(width, height);
             _startButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
             _startButton.BackColor = Color.LightGray;
             _startButton.TextAlign = ContentAlignment.MiddleCenter;
@@ -203,8 +289,8 @@ namespace MultiWebcamApp
             y += 50;
 
             // 뒤로가기 버튼
-            _backwardButton.Location = new Point(x, y);
-            _backwardButton.Size = new Size(width, height);
+            _backwardButton.Location = new System.Drawing.Point(x, y);
+            _backwardButton.Size = new System.Drawing.Size(width, height);
             _backwardButton.FlatStyle = FlatStyle.Flat;
             _backwardButton.FlatAppearance.BorderSize = 2;
             _backwardButton.BackColor = Color.LightGray;
@@ -218,8 +304,8 @@ namespace MultiWebcamApp
             x += width + margin;
 
             // 일시정지 버튼
-            _pauseButton.Location = new Point(x, y);
-            _pauseButton.Size = new Size(width, height);
+            _pauseButton.Location = new System.Drawing.Point(x, y);
+            _pauseButton.Size = new System.Drawing.Size(width, height);
             _pauseButton.FlatStyle = FlatStyle.Flat;
             _pauseButton.FlatAppearance.BorderSize = 2;
             _pauseButton.BackColor = Color.LightGray;
@@ -231,8 +317,8 @@ namespace MultiWebcamApp
             x += width + margin;
 
             // 앞으로가기 버튼튼
-            _forwardButton.Location = new Point(x, y);
-            _forwardButton.Size = new Size(width, height);
+            _forwardButton.Location = new System.Drawing.Point(x, y);
+            _forwardButton.Size = new System.Drawing.Size(width, height);
             _forwardButton.FlatStyle = FlatStyle.Flat;
             _forwardButton.FlatAppearance.BorderSize = 2;
             _forwardButton.BackColor = Color.LightGray;
@@ -251,8 +337,8 @@ namespace MultiWebcamApp
             y -= 50;
 
             // 슬로우모드 버튼
-            _slowButton.Location = new Point(x, y);
-            _slowButton.Size = new Size(width, height);
+            _slowButton.Location = new System.Drawing.Point(x, y);
+            _slowButton.Size = new System.Drawing.Size(width, height);
             _slowButton.Font = new Font("Calibri", 50, FontStyle.Bold);
             _slowButton.BackColor = Color.LightGray;
             _slowButton.TextAlign= ContentAlignment.MiddleCenter;
@@ -264,8 +350,8 @@ namespace MultiWebcamApp
             y = y + height + margin;
             width = 120;
             height = 30;
-            _recordButton.Location = new Point(x, y);
-            _recordButton.Size = new Size(width, height);
+            _recordButton.Location = new System.Drawing.Point(x, y);
+            _recordButton.Size = new System.Drawing.Size(width, height);
             _recordButton.OnColor = Color.Red;
             _recordButton.OffColor = Color.DarkGray;
             _recordButton.OnText = "녹화중";
@@ -329,94 +415,13 @@ namespace MultiWebcamApp
             _forwardTimer.Start();
         }
 
-        private void InitializeProcess()
-        {
-            _cancellationTokenSource = new CancellationTokenSource();
-
-            Task.Delay(1500).Wait();
-            // 멀티미디어 타이머 시작
-            _frameTimer.Start();
-        }
-
-        private void MainForm_Load(object sender, EventArgs e)
-        {
-            var screens = Screen.AllScreens;
-            if (screens.Length > 3)
-            {
-                var orderedScreens = screens.OrderBy(s => s.Bounds.Y).ToList();
-
-                var monitor1 = orderedScreens[0];
-                _webcamFormHead.StartPosition = FormStartPosition.Manual;
-                _webcamFormHead.Location = monitor1.WorkingArea.Location;
-                _webcamFormHead.Size = monitor1.WorkingArea.Size;
-                _webcamFormHead.FormBorderStyle = FormBorderStyle.None;
-                _webcamFormHead.WindowState = FormWindowState.Minimized;
-
-                var monitor2 = orderedScreens[1];
-                this.StartPosition = FormStartPosition.Manual;
-                this.Location = monitor2.WorkingArea.Location; 
-                this.Size = monitor2.WorkingArea.Size;
-                this.FormBorderStyle = FormBorderStyle.None;
-                this.WindowState = FormWindowState.Maximized; 
-
-                var monitor3 = orderedScreens[2];
-                _webcamFormBody.StartPosition = FormStartPosition.Manual;
-                _webcamFormBody.Location = monitor3.WorkingArea.Location;
-                _webcamFormBody.Size = monitor3.WorkingArea.Size;
-                _webcamFormBody.FormBorderStyle = FormBorderStyle.None;
-                _webcamFormBody.WindowState = FormWindowState.Minimized;
-
-                var monitor0 = orderedScreens[3];
-                _footpadForm.StartPosition = FormStartPosition.Manual;
-                _footpadForm.Location = monitor0.WorkingArea.Location;
-                //_footpadForm.Size = monitor0.WorkingArea.Size;
-                //_footpadForm.FormBorderStyle = FormBorderStyle.None;
-                _footpadForm.WindowState = FormWindowState.Minimized;
-            }
-
-            this.Location = new Point(0, 720);
-            _webcamFormHead.Text = "Head";
-            _webcamFormHead.Show();
-            _webcamFormBody.Text = "Body";
-            _webcamFormBody.Show();
-
-            _footpadForm.Show();
-
-            InitializeProcess();
-            InitializeRecordingManager();
-        }
-
-        private void InitializeRecordingManager()
-        {
-            try
-            {
-                // FootpadForm에 캡처 기능 초기화
-                _footpadForm.InitializeForRecording();
-
-                // 프레임 소스 목록 생성
-                var frameSources = new List<IFrameProvider>
-                {
-                    _webcamFormHead,
-                    _webcamFormBody,
-                    _footpadForm
-                };
-
-                // 녹화 매니저 초기화
-                _recordingManager = new RecordingManager(frameSources, @"C:\Users\dulab\Desktop");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"녹화 기능 초기화 오류: {ex.Message}");
-            }
-        }
-
         private void DelaySlider_ValueChanged(object sender, EventArgs e)
         {
             _delaySeconds = ((CustomTrackBar)sender).Value;
             _delayTextbox.Text = _delaySeconds.ToString();
-            _webcamFormHead.SetDelay(_delaySeconds);
-            _webcamFormBody.SetDelay(_delaySeconds);
-            _footpadForm.SetDelay(_delaySeconds);
+            //_webcamFormHead.SetDelay(_delaySeconds);
+            //_webcamFormBody.SetDelay(_delaySeconds);
+            //_footpadForm.SetDelay(_delaySeconds);
         }
 
         private void StartButton_Click(object? sender, EventArgs e)
@@ -424,34 +429,25 @@ namespace MultiWebcamApp
             _isStarted = !_isStarted;
             if (_isStarted)
             {
+                _mode = OperationMode.Play;
                 _startButton.Text = "대기";
                 _isPaused = false;
                 _delaySlider.Enabled = false;
+                _buffer.Clear();
             }
             else
             {
+                _mode = OperationMode.Idle;
                 _startButton.Text = "시작";
                 _isPaused = true;
                 _delaySlider.Enabled = true;
+                _buffer.Clear();
             }
             UpdatePlayPauseButton();
-            _webcamFormHead.SetKey("r");
-            _webcamFormBody.SetKey("r");
-            _footpadForm.SetKey("r");
-            _recordingManager.SetKey("r");
-        }
-
-        private void BackwardButton_Click(Object? sender, EventArgs e)
-        {
-            if (_isStarted)
-            {
-                _isPaused = true;
-                UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("a");
-                _webcamFormBody.SetKey("a");
-                _footpadForm.SetKey("a");
-                _recordingManager.SetKey("a");
-            }
+            //_webcamFormHead.SetKey("r");
+            //_webcamFormBody.SetKey("r");
+            //_footpadForm.SetKey("r");
+            //_recordingManager.SetKey("r");
         }
 
         private void PauseButton_Click(Object? sender, EventArgs e)
@@ -459,85 +455,121 @@ namespace MultiWebcamApp
             if (_isStarted)
             {
                 _isPaused = !_isPaused;
+                if (_isPaused)
+                {
+                    _mode = OperationMode.Stop;
+                }
+                else
+                {
+                    _mode = OperationMode.Replay;
+                }
                 UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("p");
-                _webcamFormBody.SetKey("p");
-                _footpadForm.SetKey("p");
-                _recordingManager.SetKey("p");
+                //_webcamFormHead.SetKey("p");
+                //_webcamFormBody.SetKey("p");
+                //_footpadForm.SetKey("p");
+                //_recordingManager.SetKey("p");
+            }
+        }
+
+        private void BackwardButton_Click(Object? sender, EventArgs e)
+        {
+            if (_isStarted && _mode != OperationMode.Idle)
+            {
+                _mode = OperationMode.Stop;
+                _isPaused = true;
+                _buffer.PlayPosition = Math.Max(0, _buffer.PlayPosition - 15);
+                UpdatePlayPauseButton();
+                //_webcamFormHead.SetKey("a");
+                //_webcamFormBody.SetKey("a");
+                //_footpadForm.SetKey("a");
+                //_recordingManager.SetKey("a");
             }
         }
 
         private void ForwardButton_Click(Object? sender, EventArgs e)
         {
-            if (_isStarted)
+            if (_isStarted && _mode != OperationMode.Idle)
             {
+                _mode = OperationMode.Stop;
                 _isPaused = true;
+                _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 15);
                 UpdatePlayPauseButton();
-                _webcamFormHead.SetKey("d");
-                _webcamFormBody.SetKey("d");
-                _footpadForm.SetKey("d");
-                _recordingManager.SetKey("d");
+                //_webcamFormHead.SetKey("d");
+                //_webcamFormBody.SetKey("d");
+                //_footpadForm.SetKey("d");
+                //_recordingManager.SetKey("d");
             }
         }
 
         private void SlowButton_Click(Object? sender, EventArgs e)
         {
-            if (_isStarted)
+            if (_isStarted && (_mode == OperationMode.Stop || _mode == OperationMode.Replay))
             {
-                _isSlowMode = !_isSlowMode;
+                _slowLevel = _slowLevel == 8 ? 1 : _slowLevel * 2;
+                if (_slowLevel != 1) _isSlowMode = true;
+                else _isSlowMode = false;
+
                 _slowButton.BackColor = _isSlowMode ? Color.DarkGray : Color.LightGray;
-                _webcamFormHead.SetKey("s");
-                _webcamFormBody.SetKey("s");
-                _footpadForm.SetKey("s");
-                _recordingManager.SetKey("s");
+                _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
+                //_webcamFormHead.SetKey("s");
+                //_webcamFormBody.SetKey("s");
+                //_footpadForm.SetKey("s");
+                //_recordingManager.SetKey("s");
             }
         }
 
         private void RecordButton_Checked(Object? sender, EventArgs e)
         {
             Console.WriteLine($"{_recordButton.Checked}");
-            if (_recordingManager == null) return;
+            //if (_recordingManager == null) return;
 
-            try
-            {
-                if (_recordButton.Checked)
-                {
-                    _recordingManager.StartRecording();
-                }
-                else
-                {
-                    _recordingManager.StopRecording();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
-                _recordButton.Checked = false;
-            }
+            //try
+            //{
+            //    if (_recordButton.Checked)
+            //    {
+            //        _recordingManager.StartRecording();
+            //    }
+            //    else
+            //    {
+            //        _recordingManager.StopRecording();
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
+            //    _recordButton.Checked = false;
+            //}
         }
 
         private void UpdateRecordingStatus()
         {
-            if (_recordingManager == null) return;
+            //if (_recordingManager == null) return;
 
-            // 녹화 중이면 버튼 깜빡임 효과
-            if (_recordingManager.IsRecording && _isStarted)
-            {
-                _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
-                    ? System.Drawing.Color.DarkRed
-                    : System.Drawing.Color.Red;
-            }
-            else
-            {
-                _recordButton.OnColor = System.Drawing.Color.Red;
-            }
+            //// 녹화 중이면 버튼 깜빡임 효과
+            //if (_recordingManager.IsRecording && _isStarted)
+            //{
+            //    _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
+            //        ? System.Drawing.Color.DarkRed
+            //        : System.Drawing.Color.Red;
+            //}
+            //else
+            //{
+            //    _recordButton.OnColor = System.Drawing.Color.Red;
+            //}
         }
 
         private void CleanupRecordingResources()
         {
             _recordingStatusTimer?.Stop();
             _recordingStatusTimer?.Dispose();
-            _recordingManager?.Dispose();
+            _backwardTimer?.Stop();
+            _backwardTimer?.Dispose();
+            _forwardTimer?.Stop();
+            _forwardTimer?.Dispose();
+            _backwardInitialTimer?.Stop();
+            _backwardInitialTimer?.Dispose();
+            _forwardInitialTimer?.Stop();
+            _forwardInitialTimer?.Dispose();
         }
 
         private void UpdatePlayPauseButton()
@@ -545,38 +577,72 @@ namespace MultiWebcamApp
             _pauseButton.IconChar = _isPaused ? IconChar.Play : IconChar.Pause;
         }
 
-        private void CloseButton_Click(object sender, EventArgs e)
+        private async void CloseButton_Click(object sender, EventArgs e)
         {
-            _cancellationTokenSource?.Cancel();
+            if (_isClosing) return;
+            await CloseApplication();
+        }
 
-            // 멀티미디어 타이머 중지 및 정리
-            if (_frameTimer != null && _frameTimer.IsRunning)
+        private async Task CloseApplication()
+        {
+            if (_isClosing) return;
+            _isClosing = true;
+            Console.WriteLine("Closing application...");
+            _closeButton.Enabled = false;
+
+            _renderingCts?.Cancel();
+            if (_renderingTask != null)
             {
-                _frameTimer.Stop();
-                _frameTimer.Dispose();
+                try
+                {
+                    await _renderingTask;
+                }
+                catch (TaskCanceledException) { }
             }
+            await _syncManager.StopAsync();
+            _headDisplay.Close();
+            _bodyDisplay.Close();
+            _pressureDisplay.Close();
+            CleanupRecordingResources();
+            Close();
+        }
 
-            Task.Delay(1000);
-            _webcamFormHead.Close();
-            _webcamFormBody.Close();
-            this.Close();
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing && !_isClosing)
+            {
+                e.Cancel = true;
+                CloseButton_Click(null, null);
+            }
+            base.OnFormClosing(e);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            // 멀티미디어 타이머 정리
-            if (_frameTimer != null && _frameTimer.IsRunning)
-            {
-                _frameTimer.Stop();
-                _frameTimer.Dispose();
-            }
-
-            CleanupRecordingResources();
-
             base.OnFormClosed(e);
-
-            _webcamFormHead.Close();
-            _webcamFormBody.Close();
         }
+    }
+
+    public class FrameData
+    {
+        public Mat WebcamHead { get; set; }
+        public Mat WebcamBody { get; set; }
+        public ushort[] PressureData { get; set; }
+        public long Timestamp { get; set; }
+    }
+
+    public interface IFrameSource
+    {
+        FrameData CaptureFrame();
+        void Start();
+        void Stop();
+    }
+
+    public enum OperationMode
+    {
+        Idle,
+        Play,
+        Replay,
+        Stop
     }
 }

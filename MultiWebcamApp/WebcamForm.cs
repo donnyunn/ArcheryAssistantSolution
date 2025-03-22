@@ -75,15 +75,15 @@ namespace MultiWebcamApp
             _viewer.Show();
 
             // 웹캠 캡처 시작
-            _ = StartCamera().ContinueWith(t =>
-            {
-                if (t.IsFaulted && t.Exception != null)
-                {
-                    Console.WriteLine($"카메라 {_cameraIndex} 시작 중 오류: {t.Exception.InnerException?.Message}");
-                }
-            });
+            //_ = StartCamera().ContinueWith(t =>
+            //{
+            //    if (t.IsFaulted && t.Exception != null)
+            //    {
+            //        Console.WriteLine($"카메라 {_cameraIndex} 시작 중 오류: {t.Exception.InnerException?.Message}");
+            //    }
+            //});
 
-            _ = mainWork();
+            //_ = mainWork();
         }
 
         private async Task StartCamera()
