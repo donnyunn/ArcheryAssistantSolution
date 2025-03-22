@@ -47,10 +47,23 @@ namespace MultiWebcamApp
             InitializeComponent();
             InitializeCustomControls();
 
-            _buffer = new FrameBuffer();
-            var sources = new IFrameSource[] { new WebcamSource(0), new WebcamSource(1), new PressurePadSource() };
-            _syncManager = new SyncManager(sources, _buffer);
+            _buffer = new FrameBuffer(); 
+            var webcamSource1 = new WebcamSource(0);
+            var webcamSource2 = new WebcamSource(1);
+            var pressurePadSource = new PressurePadSource();
+            var sources = new List<IFrameSource> { webcamSource1, webcamSource2 };
+            // 압력패드 소스 추가 여부 확인
+            try
+            {
+                pressurePadSource.Start(); // 초기화 테스트
+                sources.Add(pressurePadSource);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Pressure pad initialization failed: {ex.Message}. Proceeding with cameras only.");
+            }
 
+            _syncManager = new SyncManager(sources.ToArray(), _buffer);
             _headDisplay = new CameraViewer.MainWindow();
             _bodyDisplay = new CameraViewer.MainWindow();
             _pressureDisplay = new PressureMapViewer.MainWindow();
@@ -126,6 +139,8 @@ namespace MultiWebcamApp
         {
             while (!token.IsCancellationRequested)
             {
+                if (_isClosing) break;
+
                 FrameData frame = null;
                 var msgLower = "";
                 var msgUpper = "";
@@ -143,7 +158,6 @@ namespace MultiWebcamApp
                         if (_syncManager.TryGetFrame(out frame))
                         {
                             _buffer.Add(frame);
-                            _buffer.PlayPosition++;
 
                             int delayFrames = _delaySeconds * (int)FPS;
                             int playPosition;
@@ -164,6 +178,7 @@ namespace MultiWebcamApp
                             }
 
                             frame = _buffer.GetFrame(playPosition);
+                            _buffer.PlayPosition = playPosition;
                             break;
                         }
                         await Task.Delay(10);
@@ -198,11 +213,17 @@ namespace MultiWebcamApp
                         break;
                 }
 
-                if (frame != null && !token.IsCancellationRequested)
+                if (frame != null && !token.IsCancellationRequested && !_isClosing && IsHandleCreated)
                 {
                     try
                     {
-                        Invoke(new Action(() => UpdateUI(frame, msgLower, msgUpper)));
+                        Invoke(new Action(() =>
+                        {
+                            if (!_isClosing && IsHandleCreated) // 중복 체크
+                            {
+                                UpdateUI(frame, msgLower, msgUpper);
+                            }
+                        }));
                     }
                     catch (ObjectDisposedException) { break; }
                     catch (InvalidOperationException) { break; }
@@ -214,7 +235,10 @@ namespace MultiWebcamApp
         {
             _headDisplay.UpdateFrame(frame.WebcamHead, msg, msg2);
             _bodyDisplay.UpdateFrame(frame.WebcamBody, msg, msg2);
-            _pressureDisplay.UpdatePressureData(frame.PressureData);
+            if (frame.PressureData != null)
+            {
+                _pressureDisplay.UpdatePressureData(frame.PressureData);
+            }
         }
 
         private string statusMessage(double seconds, int slowLevel = 1)
@@ -595,16 +619,31 @@ namespace MultiWebcamApp
             {
                 try
                 {
-                    await _renderingTask;
+                    await _renderingTask.ConfigureAwait(false);
                 }
                 catch (TaskCanceledException) { }
             }
             await _syncManager.StopAsync();
-            _headDisplay.Close();
-            _bodyDisplay.Close();
-            _pressureDisplay.Close();
+
+            if (IsHandleCreated)
+            {
+                Invoke(new Action(() =>
+                {
+                    if (_headDisplay.IsLoaded) _headDisplay.Dispatcher.Invoke(() => _headDisplay.Close());
+                    if (_bodyDisplay.IsLoaded) _bodyDisplay.Dispatcher.Invoke(() => _bodyDisplay.Close());
+                    if (_pressureDisplay.IsLoaded) _pressureDisplay.Dispatcher.Invoke(() => _pressureDisplay.Close());
+                }));
+            }
             CleanupRecordingResources();
-            Close();
+
+            if (IsHandleCreated)
+            {
+                Invoke(new Action(() => Close())); // UI 스레드에서 호출 보장
+            }
+            else
+            {
+                Close();
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

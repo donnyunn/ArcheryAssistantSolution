@@ -14,119 +14,71 @@ namespace CameraViewer
     {
         private WriteableBitmap _writeableBitmap;
 
-        private string _currentStatusText = "";
-        private string _currentStatusText2 = "";
-        private System.Threading.Timer _statusUpdateTimer;
-
         private int _frameCount = 0;
-        private int _droppedFrames = 0;
-        private int _timerCounter = 0;
-        private DateTime _lastRenderTime = DateTime.MinValue;
-
-        // 프레임 큐와 렌더링 플래그
-        private readonly ConcurrentQueue<Mat> _frameQueue = new ConcurrentQueue<Mat>();
-        private bool _isRendering = false;
+        private DateTime _lastFpsCheck = DateTime.Now;
 
         public MainWindow()
         {
             InitializeComponent();
-
-            // 100ms 간격으로 상태 텍스트 업데이트
-            _statusUpdateTimer = new System.Threading.Timer(
-                StatusUpdateTimer_Tick,
-                null,
-                0,
-                100);
-        }
-
-        private void StatusUpdateTimer_Tick(object? state)
-        {
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                StatusText.Text = _currentStatusText;
-                StatusText2.Text = _currentStatusText2;
-            }));
-
-            if (++_timerCounter >= 10) // 1초마다 FPS 출력
-            {
-                Console.WriteLine($"Camera FPS: {_frameCount} | Dropped: {_droppedFrames}");
-                _frameCount = 0;
-                _droppedFrames = 0;
-                _timerCounter = 0;
-            }
         }
 
         // 외부에서 호출되는 프레임 업데이트 메서드
         public void UpdateFrame(Mat frame, string statusText = "", string statusText2 = "")
         {
-            if (frame == null || frame.IsDisposed) return;
-
-            Interlocked.Increment(ref _frameCount);
-
-            // 상태 텍스트 업데이트
-            _currentStatusText = statusText;
-            _currentStatusText2 = statusText2;
-
-            // 프레임 큐에 추가
-            _frameQueue.Enqueue(frame.Clone()); // Clone으로 원본 프레임 보존
-
-            // 렌더링 루프가 실행 중이 아니면 시작
-            if (!_isRendering)
+            if (frame == null || frame.IsDisposed) return; 
+            
+            _frameCount++;
+            TimeSpan elapsed = DateTime.Now - _lastFpsCheck;
+            if (elapsed.TotalSeconds >= 1.0)
             {
-                _isRendering = true;
-                Task.Run(RenderLoop);
+                Console.WriteLine($"Camera FPS: {_frameCount}");
+                _frameCount = 0;
+                _lastFpsCheck = DateTime.Now;
             }
-        }
 
-        // 프레임 큐를 처리하는 비동기 렌더링 루프
-        private async Task RenderLoop()
-        {
-            while (_frameQueue.TryDequeue(out Mat frame))
+            // WriteableBitmap 초기화 (최초 1회)
+            if (_writeableBitmap == null || _writeableBitmap.PixelWidth != frame.Width || _writeableBitmap.PixelHeight != frame.Height)
             {
-                await ProcessFrameAsync(frame);
-                _lastRenderTime = DateTime.Now;
+                _writeableBitmap = new WriteableBitmap(
+                    frame.Width, frame.Height,
+                    96, 96,
+                    System.Windows.Media.PixelFormats.Bgr24, null);
+                DisplayImage.Source = _writeableBitmap;
             }
-            _isRendering = false; // 큐가 비면 렌더링 종료
-        }
 
-        // 최적화된 프레임 처리 메서드
-        private async Task ProcessFrameAsync(Mat frame)
-        {
+            // 프레임 데이터 직접 업데이트
             try
             {
-                // UI 스레드에서 비동기적으로 화면 업데이트
-                await Dispatcher.InvokeAsync(() =>
+                _writeableBitmap.Lock();
+                unsafe
                 {
-                    try
+                    byte* dst = (byte*)_writeableBitmap.BackBuffer;
+                    byte* src = (byte*)frame.Data;
+                    int stride = _writeableBitmap.BackBufferStride;
+                    int srcStride = (int)frame.Step();
+
+                    int bytesPerRow = frame.Width * 3; // BGR24는 3바이트/픽셀
+                    for (int y = 0; y < frame.Height; y++)
                     {
-                        // OpenCVSharp.WpfExtensions를 사용해 Mat을 WriteableBitmap으로 변환
-                        _writeableBitmap = frame.ToWriteableBitmap();
-                        DisplayImage.Source = _writeableBitmap;
+                        Buffer.MemoryCopy(src + y * srcStride, dst + y * stride, bytesPerRow, bytesPerRow);
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"UI 업데이트 오류: {ex.Message}");
-                    }
-                }, DispatcherPriority.Render); // Render 우선순위로 빠른 UI 업데이트
+                }
+                _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, frame.Width, frame.Height));
+                _writeableBitmap.Unlock();
+
+                // 상태 텍스트 즉시 업데이트
+                StatusText.Text = statusText;
+                StatusText2.Text = statusText2;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"프레임 처리 오류: {ex.Message}");
-            }
-            finally
-            {
-                frame.Dispose(); // 리소스 정리
+                Console.WriteLine($"프레임 렌더링 오류: {ex.Message}");
             }
         }
 
         // 창이 닫힐 때 타이머 정리
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            _statusUpdateTimer?.Dispose();
-            while (_frameQueue.TryDequeue(out Mat frame))
-            {
-                frame.Dispose(); // 남은 프레임 정리
-            }
             base.OnClosing(e);
         }
     }

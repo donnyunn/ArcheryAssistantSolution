@@ -16,9 +16,9 @@ namespace MultiWebcamApp
 
         public SyncManager(IFrameSource[] sources, FrameBuffer buffer)
         {
-            if (sources == null || sources.Length != 3)
+            if (sources == null || sources.Length < 2)
             {
-                throw new ArgumentNullException("Exactly 3 sources are required.");
+                throw new ArgumentNullException("At least two camera sources are required.");
             }
             _sources = sources;
             _frameQueue = new ConcurrentQueue<FrameData>();
@@ -62,7 +62,7 @@ namespace MultiWebcamApp
                 var startTime = stopwatch.Elapsed;
 
                 // 각 소스에서 최신 프레임 가져오기
-                var frames = new FrameData[3];
+                var frames = new FrameData[_sources.Length];
                 for (int i = 0; i < _sources.Length; i++)
                 {
                     frames[i] = _sources[i].CaptureFrame();
@@ -73,8 +73,8 @@ namespace MultiWebcamApp
                 {
                     WebcamHead = frames[0].WebcamHead,
                     WebcamBody = frames[1].WebcamBody,
-                    PressureData = frames[2].PressureData,
-                    Timestamp = Math.Min(Math.Min(frames[0].Timestamp, frames[1].Timestamp), frames[2].Timestamp)
+                    PressureData = frames.Length > 2 ? frames[2].PressureData : null,
+                    Timestamp = frames.Min(f => f.Timestamp)
                 };
 
                 _frameQueue.Enqueue(frame);

@@ -27,96 +27,45 @@ namespace PressureMapViewer
     public partial class MainWindow : Window
     {
         private const int SENSOR_SIZE = 96;
-        private const int FPS_2D = 30;
-        private const int FPS_3D = 30;
-
-        // 렌더링 관련
-        private DateTime _lastRenderTime = DateTime.MinValue;
-        private readonly object _dataLock = new object();
-
-        private ushort[] _latestData;
+        private const int FPS = 30;
 
         // 2D 렌더링 관련
         private WriteableBitmap heatmapBitmap;
-        private int[] colorBuffer;
-
-        // 3D 렌더링 관련
-        private Model3DGroup meshGroup;
-        private ModelVisual3D modelVisual;
-        private GeometryModel3D[,] meshGrid;
-        
-        // 카메라 관련
-        private const double INITIAL_POSITION_Y = 3.0;
-        private const double INITIAL_POSITION_Z = 3.0;
-        private const double INITIAL_ANGLE = 15.0;
-        private double rotationAngle = INITIAL_ANGLE;
-        private double cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
-        private double cameraHeight = INITIAL_POSITION_Z;
-        private Point3D initialPosition;
-        private Vector3D initialLookDirection;
-        private Vector3D initialUpDirection;
-
-        // 미리 계산된 색상 팔레트 (예: 1024개의 색상)
         private Color[] heatmapPalette = new Color[1024];
+        private int[] precomputedColors;
 
-        // 무게중심 관련
+        // 무게중심
         private Point centerOfPressure;
         private Ellipse copIndicator;
-        private Queue<Point> copHistory;
+        private Queue<Point> copHistory = new Queue<Point>(100);
         private Polyline copTrajectory;
-        private const int MAX_TRAJECTORY_POINTS = 100;  // 궤적 표시 최대 포인트 수
-        private const double TRAJECTORY_OPACITY = 0.6;  // 궤적 선 투명도
+        private const double TRAJECTORY_OPACITY = 0.6;
 
-        // 격자 관련
-        private ModelVisual3D gridVisual;
-        private const double GRID_SPACING = 0.2; // 격자 간격
+        // 밸런스 게이지
+        private const double WEIGHT_THRESHOLD = 1.0;
+        private double leftPercent = 50, rightPercent = 50;
+        private double leftForefootPercent = 0, leftHeelPercent = 0;
+        private double rightForefootPercent = 0, rightHeelPercent = 0;
 
-        // 밸런스 게이지 관련
-        private const double WEIGHT_THRESHOLD = 1.0; // 유효 압력 임계값
-        private Point footCenter = new Point(SENSOR_SIZE / 2, SENSOR_SIZE / 2);
-
-        // 시계열 그래프 관련
-        private const int MAX_CHART_POINTS = 200; // 최대 그래프 포인트 수
-        private const double CHART_UPDATE_INTERVAL_MS = 100; // 그래프 업데이트 간격 (ms)
-        private DateTime lastChartUpdateTime = DateTime.MinValue;
-        private const double WEIGHT_UPDATE_INTERVAL_MS = 1000;
-        private DateTime lastWeightUpdateTime = DateTime.MinValue;
-
-        // 그래프 데이터 큐
+        // 차트
+        private const int MAX_CHART_POINTS = 200;
         private Queue<Point> forefootHeelData = new Queue<Point>(MAX_CHART_POINTS);
         private Queue<Point> leftPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
+        private int _chartUpdateCounter = 0;
+        private const int CHART_UPDATE_FREQUENCY = 3; // 3프레임마다 업데이트 (~100ms)
 
-        // 밸런스 값 저장 변수
-        private double leftForefootPercent = 0; // 왼쪽 발의 앞부분 비율
-        private double leftHeelPercent = 0;     // 왼쪽 발의 뒷부분 비율
-        private double rightForefootPercent = 0; // 오른쪽 발의 앞부분 비율
-        private double rightHeelPercent = 0;     // 오른쪽 발의 뒷부분 비율
-
-        private double leftPercent = 50;
-        private double rightPercent = 50;
-        private double forefootPercent = 50;
-        private double heelPercent = 50;
-
-        // 타이머 틱 이벤트 처리기
-        int frameCount = 0;
-        private DateTime lastFpsCheck = DateTime.Now;
+        // FPS 모니터링
+        private int _frameCount = 0;
+        private DateTime _lastFpsCheck = DateTime.Now;
 
         public MainWindow()
         {
             InitializeComponent();
             InitializeRendering();
             InitializeHeatmapPalette();
-
-            // 무게중심 표시기 초기화
             InitializeCOPIndicator();
-
-            // 3D 격자 초기화
-            InitializeGrid();
-
             InitializeCharts();
-
-            _latestData = new ushort[SENSOR_SIZE * SENSOR_SIZE];
         }
         
         public void UpdatePressureData(ushort[] data)
@@ -124,232 +73,38 @@ namespace PressureMapViewer
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
                 return;
 
-            frameCount++;
-            TimeSpan elapsed = DateTime.Now - lastFpsCheck;
-            if (elapsed.TotalMilliseconds >= 1000)
+            _frameCount++;
+            TimeSpan elapsed = DateTime.Now - _lastFpsCheck;
+            if (elapsed.TotalSeconds >= 1.0)
             {
-                Console.WriteLine($"Footpad FPS: {frameCount}");
-                frameCount = 0;
-                lastFpsCheck = DateTime.Now;
+                Console.WriteLine($"Footpad FPS: {_frameCount}");
+                _frameCount = 0;
+                _lastFpsCheck = DateTime.Now;
             }
 
-            Buffer.BlockCopy(data, 0, _latestData, 0, data.Length * sizeof(ushort));
+            Update2D(data);
+            UpdateCenterOfPressure(data);
+            UpdateBalanceGauges(data);
 
-            // UI 스레드에서 실행
-            this.Dispatcher.BeginInvoke(new Action(() =>
+            _chartUpdateCounter++;
+            if (_chartUpdateCounter >= CHART_UPDATE_FREQUENCY)
             {
-                UpdatePressureDataDirect(_latestData);
-            }), System.Windows.Threading.DispatcherPriority.Send);
+                UpdateCharts();
+                EstimateWeight(data);
+                _chartUpdateCounter = 0;
+            }
         }
 
-        // 차트 초기화 메서드
-        private void InitializeCharts()
+        private void InitializeRendering()
         {
-            // 각 그래프 라인 초기화
-            ForefootHeelLine.Points = new PointCollection();
-            LeftPressureLine.Points = new PointCollection();
-            RightPressureLine.Points = new PointCollection();
-
-            // 초기 데이터 포인트 추가 (0값으로)
-            for (int i = 0; i < MAX_CHART_POINTS; i++)
-            {
-                double x = i * (ForefootHeelChart.ActualWidth / MAX_CHART_POINTS);
-
-                forefootHeelData.Enqueue(new Point(x, 0));
-                leftPressureData.Enqueue(new Point(x, 0));
-                rightPressureData.Enqueue(new Point(x, 0));
-            }
-
-            // 창 크기 변경 시 차트 업데이트 이벤트 추가
-            SizeChanged += (s, e) => {
-                if (IsLoaded)
-                {
-                    UpdateChartSizes();
-                }
-            };
-
-            // 차트 캔버스 크기 변경 이벤트 추가
-            ForefootHeelChart.SizeChanged += (s, e) => UpdateChartSizes();
-            LeftPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
-            RightPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+            heatmapBitmap = new WriteableBitmap(
+                SENSOR_SIZE, SENSOR_SIZE,
+                96, 96,
+                PixelFormats.Bgr32,
+                null);
+            HeatmapImage.Source = heatmapBitmap;
         }
 
-        // 차트 크기 업데이트 (차트 컨테이너 크기 변경 시 호출)
-        private void UpdateChartSizes()
-        {
-            // 차트가 로드되었는지 확인
-            if (!IsLoaded ||
-                ForefootHeelChart.ActualWidth <= 0 ||
-                LeftPressureChart.ActualWidth <= 0 ||
-                RightPressureChart.ActualWidth <= 0)
-                return;
-
-            // 모든 그래프 데이터 포인트 재계산
-            RecalculateChartPoints(forefootHeelData, ForefootHeelChart, ForefootHeelLine);
-            RecalculateChartPoints(leftPressureData, LeftPressureChart, LeftPressureLine);
-            RecalculateChartPoints(rightPressureData, RightPressureChart, RightPressureLine);
-        }
-
-        // 차트 포인트 재계산 (크기 변경 시)
-        private void RecalculateChartPoints(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine)
-        {
-            if (dataQueue.Count == 0 || chartCanvas.ActualWidth <= 0 || chartCanvas.ActualHeight <= 0)
-                return;
-
-            double width = chartCanvas.ActualWidth;
-            double height = chartCanvas.ActualHeight;
-
-            // 기존 데이터 값을 유지하면서 X 좌표만 업데이트
-            Point[] points = dataQueue.ToArray();
-            PointCollection newPoints = new PointCollection();
-
-            for (int i = 0; i < points.Length; i++)
-            {
-                double x = (double)i / (MAX_CHART_POINTS - 1) * width;
-                double y = height - (points[i].Y * height / 100); // 퍼센트 값을 Y 좌표로 변환
-
-                newPoints.Add(new Point(x, y));
-            }
-
-            chartLine.Points = newPoints;
-        }
-
-        private void UpdatePressureDataDirect(ushort[] data)
-        {
-            try
-            {
-                Update2D(data);
-                UpdateCenterOfPressure(data);
-                UpdateBalanceGauges(data);
-                // 일정 시간마다 차트 업데이트 (성능 최적화)
-                TimeSpan chartUpdateElapsed = DateTime.Now - lastChartUpdateTime;
-                if (chartUpdateElapsed.TotalMilliseconds >= CHART_UPDATE_INTERVAL_MS)
-                {
-                    UpdateCharts();
-                    lastChartUpdateTime = DateTime.Now;
-                }
-                TimeSpan weightUpdateElapsed = DateTime.Now - lastWeightUpdateTime;
-                if (weightUpdateElapsed.TotalMilliseconds >= WEIGHT_UPDATE_INTERVAL_MS)
-                {
-                    EstimateWeight(data);
-                    lastWeightUpdateTime = DateTime.Now;
-                }
-                // 3D 업데이트는 선택적으로 더 낮은 빈도로 수행 가능
-                //if (viewport3D.IsVisible) // 실제로 보이는 경우만 업데이트
-                //{
-                //    Update3D(data);
-                //    UpdateGrid(data);
-                //}
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Rendering error: {ex.Message}");
-            }
-        }
-
-        private double estimatedWeight = 0; // 추정 무게 (kg)
-        private const double CELL_SIZE = 0.0055; // 셀 한 변의 길이 (5.5mm)
-        private const double CELL_AREA = CELL_SIZE * CELL_SIZE; // 각 셀의 면적 (mm²)
-        private const double GRAVITY = 9.81; // 중력 가속도 (m/s²)
-        private const double PRESSURE_SCALING_FACTOR = 1000.0; // 압력 보정 계수 (필요 시 조정)
-        private void EstimateWeight(ushort[] data)
-        {
-            double totalForce = 0;
-            double totalActiveCells = 0;
-            double totalPressure = 0;
-
-            for (int i = 0; i < data.Length; i++)
-            {
-                double pressure = data[i];
-
-                // 노이즈 간주
-                if (pressure > WEIGHT_THRESHOLD)
-                {
-                    double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR; // 힘(N) = 압력(kpa) * 면적(m2) * 1000
-                    totalForce += force;
-                    totalActiveCells++;
-                    totalPressure += pressure;
-                }
-            }
-
-            estimatedWeight = totalForce / GRAVITY;
-
-            UpdateWeightDisplay(estimatedWeight, totalActiveCells, totalPressure);
-        }
-
-        private void UpdateWeightDisplay(double weight, double activeCells, double pressure)
-        {
-            if (activeCells < 1)
-            {
-                WeightValueText.Text = "- kg";
-                ActiveCellsText.Text = "- kpa";
-            }
-            else
-            {
-                WeightValueText.Text = $"{Math.Round(weight, 1)} kg";
-                //ActiveCellsText.Text = $"{Math.Round(activeCells)}";
-                ActiveCellsText.Text = $"{Math.Round(pressure)} kpa";
-            }
-        }
-
-        // 차트 업데이트 메서드
-        private void UpdateCharts()
-        {
-            // 캔버스 크기 확인
-            if (ForefootHeelChart.ActualWidth <= 0 || LeftPressureChart.ActualWidth <= 0 || RightPressureChart.ActualWidth <= 0)
-                return;
-
-            double width1 = ForefootHeelChart.ActualWidth;
-            double height1 = ForefootHeelChart.ActualHeight;
-            double width2 = LeftPressureChart.ActualWidth;
-            double height2 = LeftPressureChart.ActualHeight;
-            double width3 = RightPressureChart.ActualWidth;
-            double height3 = RightPressureChart.ActualHeight;
-
-            // 이전 데이터 큐에서 첫 번째 항목 제거
-            if (forefootHeelData.Count >= MAX_CHART_POINTS)
-                forefootHeelData.Dequeue();
-            if (leftPressureData.Count >= MAX_CHART_POINTS)
-                leftPressureData.Dequeue();
-            if (rightPressureData.Count >= MAX_CHART_POINTS)
-                rightPressureData.Dequeue();
-
-            // 새 데이터 포인트 추가 (현재 균형값)
-            forefootHeelData.Enqueue(new Point(width1, leftPercent)); // 좌우 균형 (초록색)
-            leftPressureData.Enqueue(new Point(width2, leftForefootPercent)); // 왼쪽 발 앞/뒤 균형 (빨간색)
-            rightPressureData.Enqueue(new Point(width3, rightForefootPercent)); // 오른쪽 발 앞/뒤 균형 (파란색)
-
-            // 차트 포인트 갱신
-            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine);
-            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine);
-            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine);
-
-            // 현재 값 텍스트 업데이트
-            ForefootHeelValueText.Text = $"L: {Math.Round(leftPercent)}% / R: {Math.Round(rightPercent)}%";
-            LeftPressureValueText.Text = $"F: {Math.Round(leftForefootPercent)}% / H: {Math.Round(leftHeelPercent)}%";
-            RightPressureValueText.Text = $"F: {Math.Round(rightForefootPercent)}% / H: {Math.Round(rightHeelPercent)}%";
-        }
-
-        // 차트 라인 업데이트 메서드
-        private void UpdateChartLine(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine)
-        {
-            double width = chartCanvas.ActualWidth;
-            double height = chartCanvas.ActualHeight;
-
-            Point[] points = dataQueue.ToArray();
-            PointCollection newPoints = new PointCollection();
-
-            for (int i = 0; i < points.Length; i++)
-            {
-                double x = (double)i / (points.Length - 1) * width;
-                double y = height - (points[i].Y * height / 100); // 퍼센트 값을 Y 좌표로 변환
-                newPoints.Add(new Point(x, y));
-            }
-
-            chartLine.Points = newPoints;
-        }
-
-        private int[] precomputedColors; // BGR32 포맷으로 미리 계산된 색상
         private void InitializeHeatmapPalette()
         {
             for (int i = 0; i < heatmapPalette.Length; i++)
@@ -358,7 +113,6 @@ namespace PressureMapViewer
                 heatmapPalette[i] = GetHeatmapColor(value);
             }
 
-            // BGR32 형식으로 미리 계산
             precomputedColors = new int[heatmapPalette.Length];
             for (int i = 0; i < heatmapPalette.Length; i++)
             {
@@ -377,9 +131,6 @@ namespace PressureMapViewer
                 Stroke = Brushes.White,
                 StrokeThickness = 2
             };
-
-            copHistory = new Queue<Point>(MAX_TRAJECTORY_POINTS);
-
             copTrajectory = new Polyline
             {
                 Stroke = new SolidColorBrush(Colors.Yellow) { Opacity = TRAJECTORY_OPACITY },
@@ -388,246 +139,61 @@ namespace PressureMapViewer
                 Points = new PointCollection()
             };
 
-            // HeatmapImage의 부모 컨테이너 찾기
-            Grid imageParentGrid = HeatmapImage.Parent as Grid;
-
-            // 새 Canvas 생성 및 동일한 부모에 추가
-            Canvas copCanvas = new Canvas();
-            imageParentGrid.Children.Add(copCanvas);
-
-            // 궤적을 먼저 추가하고 그 위에 현재 포인트 표시
+            Canvas copCanvas = new Canvas
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            (HeatmapImage.Parent as Grid).Children.Add(copCanvas);
             copCanvas.Children.Add(copTrajectory);
             copCanvas.Children.Add(copIndicator);
 
-            // 캔버스를 이미지와 동일한 크기로 설정
-            //copCanvas.Width = HeatmapImage.ActualWidth;
-            //copCanvas.Height = HeatmapImage.ActualHeight;
-            
-            // HeatmapImage와 동일한 정렬 설정
-            copCanvas.HorizontalAlignment = HorizontalAlignment.Center;
-            copCanvas.VerticalAlignment = VerticalAlignment.Center;
-
-            // 이미지 크기 변경 이벤트 처리
             HeatmapImage.SizeChanged += (s, e) =>
             {
                 copCanvas.Width = HeatmapImage.ActualWidth;
                 copCanvas.Height = HeatmapImage.ActualHeight;
                 UpdateTrajectoryPoints();
             };
-
-            // 초기 크기 설정
             copCanvas.Width = HeatmapImage.ActualWidth;
             copCanvas.Height = HeatmapImage.ActualHeight;
         }
 
-        private void UpdateTrajectoryPoints()
+        private void InitializeCharts()
         {
-            if (copHistory.Count > 0)
-            {
-                double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
-                double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+            ForefootHeelLine.Points = new PointCollection();
+            LeftPressureLine.Points = new PointCollection();
+            RightPressureLine.Points = new PointCollection();
 
-                var points = new PointCollection();
-                foreach (var point in copHistory)
+            SizeChanged += (s, e) => { if (IsLoaded) UpdateChartSizes(); };
+            ForefootHeelChart.SizeChanged += (s, e) => UpdateChartSizes();
+            LeftPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+            RightPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+        }
+
+        private unsafe void Update2D(ushort[] data)
+        {
+            heatmapBitmap.Lock();
+            IntPtr pBackBuffer = heatmapBitmap.BackBuffer;
+            int stride = heatmapBitmap.BackBufferStride;
+
+            for (int y = 0; y < SENSOR_SIZE; y++)
+            {
+                int* pDest = (int*)(pBackBuffer + y * stride);
+                for (int x = 0; x < SENSOR_SIZE; x++)
                 {
-                    points.Add(new Point(
-                        point.X * scaleX,
-                        point.Y * scaleY
-                    ));
-                }
-                copTrajectory.Points = points;
-            }
-        }
-
-        private void InitializeRendering()
-        {
-            // 2D 초기화
-            heatmapBitmap = new WriteableBitmap(
-                SENSOR_SIZE, SENSOR_SIZE,
-                96, 96,
-                PixelFormats.Bgr32,
-                null);
-            colorBuffer = new int[SENSOR_SIZE * SENSOR_SIZE];
-            HeatmapImage.Source = heatmapBitmap;
-
-            // 3D 초기화
-            meshGroup = new Model3DGroup();
-            modelVisual = new ModelVisual3D { Content = meshGroup };
-            viewport3D.Children.Add(modelVisual);
-
-            // 3D 메시 그리드 초기화
-            meshGrid = new GeometryModel3D[SENSOR_SIZE - 1, SENSOR_SIZE - 1];
-            InitializeMeshGrid();
-
-            // 조명 설정
-            var lightsVisual = new ModelVisual3D
-            {
-                Content = new Model3DGroup
-                {
-                    Children =
-                    {
-                        new AmbientLight(Color.FromRgb(100, 100, 100)),
-                        new DirectionalLight(Colors.White, new Vector3D(-1, -1, -1))
-                    }
-                }
-            };
-            viewport3D.Children.Add(lightsVisual);
-
-            // 카메라 초기화
-            initialPosition = new Point3D(0, INITIAL_POSITION_Y, INITIAL_POSITION_Z);
-            initialLookDirection = new Vector3D(0, -1.0, -1.0);
-            initialUpDirection = new Vector3D(0, 1, 0);
-
-            camera = new PerspectiveCamera
-            {
-                Position = initialPosition,
-                LookDirection = initialLookDirection,
-                UpDirection = initialUpDirection
-            };
-            viewport3D.Camera = camera;
-
-            UpdateCameraPosition();
-        }
-
-        private void InitializeGrid()
-        {
-            gridVisual = new ModelVisual3D();
-            meshGroup.Children.Add(new GeometryModel3D());
-        }
-
-        private GeometryModel3D CreateGridLine(Point3D start, Point3D end)
-        {
-            var mesh = new MeshGeometry3D();
-            const double thickness = 0.002;
-
-            // 선을 표현하는 얇은 사각형 생성
-            Vector3D direction = end - start;
-            Vector3D perpendicular = Vector3D.CrossProduct(direction, new Vector3D(0, 1, 0));
-            perpendicular.Normalize();
-            perpendicular *= thickness;
-
-            mesh.Positions.Add(start - perpendicular);
-            mesh.Positions.Add(start + perpendicular);
-            mesh.Positions.Add(end - perpendicular);
-            mesh.Positions.Add(end + perpendicular);
-
-            mesh.TriangleIndices.Add(0);
-            mesh.TriangleIndices.Add(1);
-            mesh.TriangleIndices.Add(2);
-            mesh.TriangleIndices.Add(1);
-            mesh.TriangleIndices.Add(3);
-            mesh.TriangleIndices.Add(2);
-
-            return new GeometryModel3D
-            {
-                Geometry = mesh,
-                Material = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(255, 255, 255)))
-            };
-        }
-
-        private void InitializeMeshGrid()
-        {
-            // 데이터 메시 초기화
-            meshGrid = new GeometryModel3D[SENSOR_SIZE - 1, SENSOR_SIZE - 1];
-            for (int z = 0; z < SENSOR_SIZE - 1; z++)
-            {
-                for (int x = 0; x < SENSOR_SIZE - 1; x++)
-                {
-                    var mesh = new MeshGeometry3D();
-                    var material = new DiffuseMaterial(new SolidColorBrush(Colors.Blue));
-                    var model = new GeometryModel3D(mesh, material)
-                    {
-                        BackMaterial = material
-                    };
-
-                    mesh.TriangleIndices.Add(0);
-                    mesh.TriangleIndices.Add(1);
-                    mesh.TriangleIndices.Add(2);
-                    mesh.TriangleIndices.Add(1);
-                    mesh.TriangleIndices.Add(3);
-                    mesh.TriangleIndices.Add(2);
-
-                    meshGrid[z, x] = model;
-                    meshGroup.Children.Add(model);
-                }
-            }
-        }
-
-        private int _gridUpdateCounter = 0;
-        private const int UPDATE_GRID_FREQUENCY = 6; // 6프레임마다 한 번씩 격자 업데이트
-        private void UpdateGrid(ushort[] data)
-        {
-            _gridUpdateCounter++;
-            if (_gridUpdateCounter < UPDATE_GRID_FREQUENCY)
-                return;
-
-            _gridUpdateCounter = 0;
-
-            var gridGeometry = new Model3DGroup();
-            float scale = 1.0f / 1024;
-
-            // 가로선
-            for (double z = 0; z < SENSOR_SIZE - 1; z += GRID_SPACING * (SENSOR_SIZE - 1))
-            {
-                for (double x = 0; x < SENSOR_SIZE - 1; x += 0.5)
-                {
-                    float h1 = data[(int)z * SENSOR_SIZE + (int)x] * scale;
-                    float h2 = data[(int)z * SENSOR_SIZE + (int)(x + 0.5)] * scale;
-
-                    var p1 = new Point3D(
-                        x / (SENSOR_SIZE - 1) * 2 - 1,
-                        h1,
-                        z / (SENSOR_SIZE - 1) * 2 - 1
-                    );
-                    var p2 = new Point3D(
-                        (x + 0.5) / (SENSOR_SIZE - 1) * 2 - 1,
-                        h2,
-                        z / (SENSOR_SIZE - 1) * 2 - 1
-                    );
-
-                    var line = CreateGridLine(p1, p2);
-                    gridGeometry.Children.Add(line);
+                    float normalizedValue = data[y * SENSOR_SIZE + x] / 1024.0f;
+                    int colorIndex = Math.Min((int)(normalizedValue * (heatmapPalette.Length - 1)), heatmapPalette.Length - 1);
+                    *pDest++ = precomputedColors[colorIndex];
                 }
             }
 
-            // 세로선
-            for (double x = 0; x < SENSOR_SIZE - 1; x += GRID_SPACING * (SENSOR_SIZE - 1))
-            {
-                for (double z = 0; z < SENSOR_SIZE - 1; z += 0.5)
-                {
-                    float h1 = data[(int)z * SENSOR_SIZE + (int)x] * scale;
-                    float h2 = data[(int)(z + 0.5) * SENSOR_SIZE + (int)x] * scale;
-
-                    var p1 = new Point3D(
-                        x / (SENSOR_SIZE - 1) * 2 - 1,
-                        h1,
-                        z / (SENSOR_SIZE - 1) * 2 - 1
-                    );
-                    var p2 = new Point3D(
-                        x / (SENSOR_SIZE - 1) * 2 - 1,
-                        h2,
-                        (z + 0.5) / (SENSOR_SIZE - 1) * 2 - 1
-                    );
-
-                    var line = CreateGridLine(p1, p2);
-                    gridGeometry.Children.Add(line);
-                }
-            }
-
-            if (gridVisual.Content != null)
-            {
-                meshGroup.Children.Remove((Model3D)gridVisual.Content);
-            }
-            gridVisual.Content = gridGeometry;
-            meshGroup.Children.Add(gridGeometry);
+            heatmapBitmap.AddDirtyRect(new Int32Rect(0, 0, SENSOR_SIZE, SENSOR_SIZE));
+            heatmapBitmap.Unlock();
         }
 
         private void UpdateCenterOfPressure(ushort[] data)
         {
-            double totalPressure = 0;
-            double weightedX = 0;
-            double weightedY = 0;
-
+            double totalPressure = 0, weightedX = 0, weightedY = 0;
             for (int y = 0; y < SENSOR_SIZE; y++)
             {
                 for (int x = 0; x < SENSOR_SIZE; x++)
@@ -639,231 +205,92 @@ namespace PressureMapViewer
                 }
             }
 
-            if (totalPressure > 0)
+            if (totalPressure > 1000)
             {
-                centerOfPressure = new Point(
-                    weightedX / totalPressure,
-                    weightedY / totalPressure
-                );
-
+                centerOfPressure = new Point(weightedX / totalPressure, weightedY / totalPressure);
                 double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
                 double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
-
-                // 현재 포인트의 화면 좌표 계산
                 double screenX = centerOfPressure.X * scaleX;
                 double screenY = centerOfPressure.Y * scaleY;
 
-                // 현재 압력이 임계값을 넘을 때만 궤적에 추가
-                //if (totalPressure > 4608) // 임계값은 적절히 조정 필요
-                if (totalPressure > 1000)
+                Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
+                Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
+
+                copHistory.Enqueue(new Point(screenX, screenY));
+                if (copHistory.Count > 100) copHistory.Dequeue();
+                copTrajectory.Points = new PointCollection(copHistory);
+
+                if (copHistory.Count > 1)
                 {
-                    // 현재 포인트 위치 업데이트
-                    Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
-                    Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
-
-                    // 궤적 히스토리 업데이트
-                    copHistory.Enqueue(new Point(screenX, screenY));
-                    while (copHistory.Count > MAX_TRAJECTORY_POINTS)
+                    var gradientStops = new GradientStopCollection();
+                    int i = 0;
+                    foreach (var point in copHistory)
                     {
-                        copHistory.Dequeue();
+                        double opacity = (double)i++ / copHistory.Count * TRAJECTORY_OPACITY;
+                        gradientStops.Add(new GradientStop(Color.FromArgb((byte)(255 * opacity), 255, 255, 0), (double)(i - 1) / (copHistory.Count - 1)));
                     }
-
-                    // 궤적 라인 업데이트
-                    PointCollection points = new PointCollection(copHistory);
-                    copTrajectory.Points = points;
-
-                    // 궤적 색상 그라데이션 업데이트
-                    if (copHistory.Count > 1)
-                    {
-                        var gradientStops = new GradientStopCollection();
-                        for (int i = 0; i < copHistory.Count; i++)
-                        {
-                            // 최근 포인트일수록 더 선명하게
-                            double opacity = (double)i / copHistory.Count * TRAJECTORY_OPACITY;
-                            gradientStops.Add(new GradientStop(
-                                Color.FromArgb(
-                                    (byte)(255 * opacity),
-                                    255, // Red
-                                    255, // Green
-                                    0   // Blue - Yellow color
-                                ),
-                                (double)i / (copHistory.Count - 1)
-                            ));
-                        }
-
-                        copTrajectory.Stroke = new LinearGradientBrush
-                        {
-                            GradientStops = gradientStops,
-                            StartPoint = new Point(0, 0),
-                            EndPoint = new Point(1, 0)
-                        };
-                    }
+                    copTrajectory.Stroke = new LinearGradientBrush { GradientStops = gradientStops, StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
                 }
-                else
-                {
-                    double x = HeatmapImage.ActualWidth / 2;
-                    double y = HeatmapImage.ActualHeight / 2;
-                    // 현재 포인트 위치 센터 고정
-                    Canvas.SetLeft(copIndicator, x - copIndicator.Width / 2);
-                    Canvas.SetTop(copIndicator, y - copIndicator.Height / 2);
-                }
+            }
+            else
+            {
+                Canvas.SetLeft(copIndicator, HeatmapImage.ActualWidth / 2 - copIndicator.Width / 2);
+                Canvas.SetTop(copIndicator, HeatmapImage.ActualHeight / 2 - copIndicator.Height / 2);
             }
         }
 
         private void UpdateBalanceGauges(ushort[] data)
         {
-            double totalPressure = 0;
-            double leftPressure = 0;
-            double rightPressure = 0;
-            double forefootPressure = 0;
-            double heelPressure = 0;
-
-            // 각 사분면(Quadrant)에 대한 압력 계산
-            double leftForefootPressure = 0;
-            double leftHeelPressure = 0;
-            double rightForefootPressure = 0;
-            double rightHeelPressure = 0;
-
-            // 무게중심 계산을 위한 변수
-            double leftWeightedY = 0;
-            double rightWeightedY = 0;
-
-            // 각 발의 Y 좌표 범위 추적
-            int leftMinY = SENSOR_SIZE;
-            int leftMaxY = 0;
-            int rightMinY = SENSOR_SIZE;
-            int rightMaxY = 0;
-
-            // 유효한 셀 카운트
-            int validCellCount = 0;
-            int leftValidCells = 0;
-            int rightValidCells = 0;
-
-            // 발 중앙선 (왼쪽/오른쪽 구분)
+            double totalPressure = 0, leftPressure = 0, rightPressure = 0;
+            double leftForefootPressure = 0, leftHeelPressure = 0, rightForefootPressure = 0, rightHeelPressure = 0;
+            double leftWeightedY = 0, rightWeightedY = 0;
+            int leftMinY = SENSOR_SIZE, leftMaxY = 0, rightMinY = SENSOR_SIZE, rightMaxY = 0;
+            int validCellCount = 0, leftValidCells = 0, rightValidCells = 0;
             int centerX = SENSOR_SIZE / 2;
 
-            // 먼저 유효한 압력 셀만 계산하여 총 압력 확인
             for (int y = 0; y < SENSOR_SIZE; y++)
             {
                 for (int x = 0; x < SENSOR_SIZE; x++)
                 {
                     double pressure = data[y * SENSOR_SIZE + x];
-
-                    if (pressure < WEIGHT_THRESHOLD) // 너무 작은 값은 무시
-                        continue;
+                    if (pressure < WEIGHT_THRESHOLD) continue;
 
                     totalPressure += pressure;
                     validCellCount++;
 
-                    // 각 발의 Y 범위 추적
-                    if (x < centerX) // 왼발
+                    if (x < centerX)
                     {
+                        leftPressure += pressure;
+                        leftWeightedY += y * pressure;
+                        leftValidCells++;
+                        if (y < SENSOR_SIZE / 2) leftForefootPressure += pressure;
+                        else leftHeelPressure += pressure;
                         leftMinY = Math.Min(leftMinY, y);
                         leftMaxY = Math.Max(leftMaxY, y);
                     }
-                    else // 오른발
+                    else
                     {
+                        rightPressure += pressure;
+                        rightWeightedY += y * pressure;
+                        rightValidCells++;
+                        if (y < SENSOR_SIZE / 2) rightForefootPressure += pressure;
+                        else rightHeelPressure += pressure;
                         rightMinY = Math.Min(rightMinY, y);
                         rightMaxY = Math.Max(rightMaxY, y);
                     }
                 }
             }
 
-            // 총 압력이 너무 낮으면 (발판에 아무도 서있지 않음) 처리하지 않고 종료
-            const double MIN_TOTAL_PRESSURE = 1000;
-            if (totalPressure < MIN_TOTAL_PRESSURE || validCellCount < 10)
-            {
-                // 현재 값 유지 (갑작스러운 변화 방지)
-                return;
-            }
+            if (totalPressure < 1000 || validCellCount < 10) return;
 
-            // 좌우, 전후 압력 계산
-            for (int y = 0; y < SENSOR_SIZE; y++)
-            {
-                for (int x = 0; x < SENSOR_SIZE; x++)
-                {
-                    double pressure = data[y * SENSOR_SIZE + x];
+            leftPercent = (leftPressure / totalPressure) * 100;
+            rightPercent = 100 - leftPercent;
 
-                    if (pressure < WEIGHT_THRESHOLD) // 너무 작은 값은 무시
-                        continue;
-
-                    // 좌우 분리
-                    if (x < centerX)
-                    {
-                        leftPressure += pressure;
-                        leftWeightedY += y * pressure; // 왼발 무게중심 Y 계산을 위한 가중치 합
-                        leftValidCells++;
-
-                        // 왼쪽 발의 앞/뒤 구분
-                        if (y < SENSOR_SIZE / 2)
-                        {
-                            leftForefootPressure += pressure; // 왼쪽-앞
-                        }
-                        else
-                        {
-                            leftHeelPressure += pressure; // 왼쪽-뒤
-                        }
-                    }
-                    else
-                    {
-                        rightPressure += pressure;
-                        rightWeightedY += y * pressure; // 오른발 무게중심 Y 계산을 위한 가중치 합
-                        rightValidCells++;
-
-                        // 오른쪽 발의 앞/뒤 구분
-                        if (y < SENSOR_SIZE / 2)
-                        {
-                            rightForefootPressure += pressure; // 오른쪽-앞
-                        }
-                        else
-                        {
-                            rightHeelPressure += pressure; // 오른쪽-뒤
-                        }
-                    }
-
-                    // 전후 분리
-                    if (y < SENSOR_SIZE / 2)
-                    {
-                        forefootPressure += pressure; // 앞쪽 (forefoot)
-                    }
-                    else
-                    {
-                        heelPressure += pressure; // 뒤쪽 (heel)
-                    }
-                }
-            }
-
-            // 각 발의 길이 계산 (유효 셀이 존재하는 범위)
-            int leftFootLength = leftMaxY - leftMinY + 1;
-            int rightFootLength = rightMaxY - rightMinY + 1;
-
-            // leftFootLength나 rightFootLength가 너무 작은 경우 기본값 사용
-            leftFootLength = Math.Max(leftFootLength, 10); // 최소 10 픽셀
-            rightFootLength = Math.Max(rightFootLength, 10); // 최소 10 픽셀
-
-            // 백분율 계산 (좌우 밸런스) - 합이 100%가 되도록 수정
-            if (totalPressure > 0)
-            {
-                leftPercent = (leftPressure / totalPressure) * 100;
-                rightPercent = 100 - leftPercent; // 합이 100%가 되도록
-            }
-            else
-            {
-                leftPercent = 50;
-                rightPercent = 50;
-            }
-
-            // 각 발의 앞/뒤 무게중심 비율 계산 (각 발의 실제 Y 범위에 대한 상대적 위치)
             if (leftValidCells > 0 && leftPressure > 0)
             {
-                // 왼쪽 발의, 세로 방향 무게중심 위치
                 double leftCenterY = leftWeightedY / leftPressure;
-
-                // 해당 발 내에서의 상대적 위치 계산
-                double relativeLeftCenterY = leftCenterY - leftMinY;
-
-                // 무게중심의 상대적 위치를 백분율로 변환 (0%: 가장 위, 100%: 가장 아래)
-                leftForefootPercent = (relativeLeftCenterY / leftFootLength) * 100;
+                int leftFootLength = Math.Max(leftMaxY - leftMinY + 1, 10);
+                leftForefootPercent = ((leftCenterY - leftMinY) / leftFootLength) * 100;
                 leftHeelPercent = 100 - leftForefootPercent;
             }
             else
@@ -874,14 +301,9 @@ namespace PressureMapViewer
 
             if (rightValidCells > 0 && rightPressure > 0)
             {
-                // 오른쪽 발의, 세로 방향 무게중심 위치
                 double rightCenterY = rightWeightedY / rightPressure;
-
-                // 해당 발 내에서의 상대적 위치 계산
-                double relativeRightCenterY = rightCenterY - rightMinY;
-
-                // 무게중심의 상대적 위치를 백분율로 변환 (0%: 가장 위, 100%: 가장 아래)
-                rightForefootPercent = (relativeRightCenterY / rightFootLength) * 100;
+                int rightFootLength = Math.Max(rightMaxY - rightMinY + 1, 10);
+                rightForefootPercent = ((rightCenterY - rightMinY) / rightFootLength) * 100;
                 rightHeelPercent = 100 - rightForefootPercent;
             }
             else
@@ -890,253 +312,133 @@ namespace PressureMapViewer
                 rightHeelPercent = 50;
             }
 
-            // 애니메이션 없이 게이지 높이/너비 직접 설정
-            double maxHeight = LeftGauge.Parent is FrameworkElement leftParent ? leftParent.ActualHeight : 400;
-            double maxWidth = ForefootGauge.Parent is FrameworkElement frontParent ? frontParent.ActualWidth / 2 : 400;
+            double maxHeight = LeftGauge.Parent is FrameworkElement ? (LeftGauge.Parent as FrameworkElement).ActualHeight : 400;
+            double maxWidth = ForefootGauge.Parent is FrameworkElement ? (ForefootGauge.Parent as FrameworkElement).ActualWidth / 2 : 400;
 
-            // 왼쪽 게이지 업데이트 - 무게중심 기준으로 표시
-            LeftGauge.Height = maxHeight * (100 - leftForefootPercent) / 100; // 위쪽이 0%, 아래쪽이 100%
-            LeftPercentText.Text = $"{Math.Round(leftHeelPercent)}%";
-
-            // 오른쪽 게이지 업데이트 - 무게중심 기준으로 표시
-            RightGauge.Height = maxHeight * (100 - rightForefootPercent) / 100; // 위쪽이 0%, 아래쪽이 100%
-            RightPercentText.Text = $"{Math.Round(rightHeelPercent)}%";
-
-            // 앞쪽 게이지 업데이트
+            LeftGauge.Height = maxHeight * (100 - leftForefootPercent) / 100;
+            RightGauge.Height = maxHeight * (100 - rightForefootPercent) / 100;
             ForefootGauge.Width = maxWidth * leftPercent / 100;
-            ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
-
-            // 뒤쪽 게이지 업데이트
             HeelGauge.Width = maxWidth * rightPercent / 100;
-            HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
 
-            // 하단 좌우 균형 텍스트 업데이트
+            LeftPercentText.Text = $"{Math.Round(leftHeelPercent)}%";
+            RightPercentText.Text = $"{Math.Round(rightHeelPercent)}%";
+            ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
+            HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
             LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
             RightBalanceText.Text = $"{Math.Round(rightPercent)}";
 
-            // 게이지 색상 업데이트 (편향성에 따라)
             UpdateGaugeColors(leftForefootPercent, rightForefootPercent, leftPercent, rightPercent);
         }
 
-        private void UpdateGaugeColors(double leftPercent, double rightPercent,
-                                      double forefootPercent, double heelPercent)
+        private void UpdateGaugeColors(double leftForefootPercent, double rightForefootPercent, double leftPercent, double rightPercent)
         {
-            // 왼쪽/오른쪽 게이지 색상 (왼발/오른발의 앞뒤 밸런스에 따라)
-            Color leftColor, rightColor;
-
-
-            // 앞/뒤 밸런스에 따른 색상 결정 (앞쪽이 30-60% 범위에 있으면 녹색)
-            if (leftForefootPercent >= 30 && leftForefootPercent <= 60)
-            {
-                leftColor = Colors.LimeGreen; // 밸런스가 좋음
-            }
-            else if (leftForefootPercent > 60)
-            {
-                leftColor = Colors.Yellow; // 앞쪽으로 편중
-            }
-            else
-            {
-                leftColor = Colors.Orange; // 뒤쪽으로 편중
-            }
-
-            if (rightForefootPercent >= 30 && rightForefootPercent <= 60)
-            {
-                rightColor = Colors.LimeGreen;
-            }
-            else if (rightForefootPercent > 60)
-            {
-                rightColor = Colors.Yellow;
-            }
-            else
-            {
-                rightColor = Colors.Orange;
-            }
-
+            Color leftColor = leftForefootPercent >= 30 && leftForefootPercent <= 60 ? Colors.LimeGreen : (leftForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
+            Color rightColor = rightForefootPercent >= 30 && rightForefootPercent <= 60 ? Colors.LimeGreen : (rightForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
             LeftGauge.Fill = new SolidColorBrush(leftColor);
             RightGauge.Fill = new SolidColorBrush(rightColor);
 
-            // 수평 게이지 색상 (좌우 밸런스에 따라)
-            Color leftFootColor, rightFootColor;
-
-            if (Math.Abs(leftPercent - 50) <= 5)
-            {
-                leftFootColor = Colors.DodgerBlue; // 균형 좋음
-            }
-            else if (leftPercent > 55)
-            {
-                leftFootColor = Colors.DodgerBlue; // 왼쪽 강조
-            }
-            else
-            {
-                leftFootColor = Colors.RoyalBlue.ChangeBrightness(0.8); // 왼쪽 약함
-            }
-
-            if (Math.Abs(rightPercent - 50) <= 5)
-            {
-                rightFootColor = Colors.DodgerBlue; // 균형 좋음
-            }
-            else if (rightPercent > 55)
-            {
-                rightFootColor = Colors.DodgerBlue; // 오른쪽 강조
-            }
-            else
-            {
-                rightFootColor = Colors.RoyalBlue.ChangeBrightness(0.8); // 오른쪽 약함
-            }
-
+            Color leftFootColor = Math.Abs(leftPercent - 50) <= 5 ? Colors.DodgerBlue : (leftPercent > 55 ? Colors.DodgerBlue : Colors.RoyalBlue.ChangeBrightness(0.8));
+            Color rightFootColor = Math.Abs(rightPercent - 50) <= 5 ? Colors.DodgerBlue : (rightPercent > 55 ? Colors.DodgerBlue : Colors.RoyalBlue.ChangeBrightness(0.8));
             ForefootGauge.Fill = new SolidColorBrush(leftFootColor);
             HeelGauge.Fill = new SolidColorBrush(rightFootColor);
         }
 
-        // 2D 렌더링 최적화 
-        private unsafe void Update2D(ushort[] data)
+        private void UpdateCharts()
         {
-            try
-            {
-                heatmapBitmap.Lock();
+            if (ForefootHeelChart.ActualWidth <= 0 || LeftPressureChart.ActualWidth <= 0 || RightPressureChart.ActualWidth <= 0) return;
 
-                // 직접 메모리 조작으로 성능 향상
-                IntPtr pBackBuffer = heatmapBitmap.BackBuffer;
-                int stride = heatmapBitmap.BackBufferStride;
+            double width1 = ForefootHeelChart.ActualWidth, height1 = ForefootHeelChart.ActualHeight;
+            double width2 = LeftPressureChart.ActualWidth, height2 = LeftPressureChart.ActualHeight;
+            double width3 = RightPressureChart.ActualWidth, height3 = RightPressureChart.ActualHeight;
 
-                // 이미 계산된, 자주 사용하는 색상 값의 룩업 테이블을 사용
-                for (int y = 0; y < SENSOR_SIZE; y++)
-                {
-                    int* pDest = (int*)(pBackBuffer + y * stride);
+            if (forefootHeelData.Count >= MAX_CHART_POINTS) forefootHeelData.Dequeue();
+            if (leftPressureData.Count >= MAX_CHART_POINTS) leftPressureData.Dequeue();
+            if (rightPressureData.Count >= MAX_CHART_POINTS) rightPressureData.Dequeue();
 
-                    for (int x = 0; x < SENSOR_SIZE; x++)
-                    {
-                        float normalizedValue = data[y * SENSOR_SIZE + x] / 1024.0f;
-                        int colorIndex = Math.Min((int)(normalizedValue * (heatmapPalette.Length - 1)), heatmapPalette.Length - 1);
-                        
-                        //Color color = heatmapPalette[colorIndex];
-                        // ARGB 값 계산 (알파는 255로 고정)
-                        //*pDest++ = (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
-                        *pDest++ = precomputedColors[colorIndex];
-                    }
-                }
+            forefootHeelData.Enqueue(new Point(width1, leftPercent));
+            leftPressureData.Enqueue(new Point(width2, leftForefootPercent));
+            rightPressureData.Enqueue(new Point(width3, rightForefootPercent));
 
-                heatmapBitmap.AddDirtyRect(new Int32Rect(0, 0, SENSOR_SIZE, SENSOR_SIZE));
-            }
-            finally
-            {
-                heatmapBitmap.Unlock();
-            }
+            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, height1);
+            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine, height2);
+            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, height3);
+
+            ForefootHeelValueText.Text = $"L: {Math.Round(leftPercent)}% / R: {Math.Round(rightPercent)}%";
+            LeftPressureValueText.Text = $"F: {Math.Round(leftForefootPercent)}% / H: {Math.Round(leftHeelPercent)}%";
+            RightPressureValueText.Text = $"F: {Math.Round(rightForefootPercent)}% / H: {Math.Round(rightHeelPercent)}%";
         }
 
-        // 3D 업데이트 최적화 - 성능을 위해 매 프레임마다 모든 셀을 업데이트하지 않음
-        private int _3dUpdateCounter = 0;
-        private const int UPDATE_3D_FREQUENCY = 3; // 3프레임마다 한 번씩 3D 업데이트
-        private void Update3D(ushort[] data)
+        private void UpdateChartLine(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine, double height)
         {
-            _3dUpdateCounter++;
-            if (_3dUpdateCounter < UPDATE_3D_FREQUENCY)
-                return;
+            double width = chartCanvas.ActualWidth;
+            Point[] points = dataQueue.ToArray();
+            PointCollection newPoints = new PointCollection();
 
-            _3dUpdateCounter = 0;
-
-            float scale = 1.0f / 1024;
-            for (int z = 0; z < SENSOR_SIZE - 1; z++)
+            for (int i = 0; i < points.Length; i++)
             {
-                for (int x = 0; x < SENSOR_SIZE - 1; x++)
-                {
-                    UpdateMeshCell(x, z, data, scale);
-                }
+                double x = (double)i / (points.Length - 1) * width;
+                double y = height - (points[i].Y * height / 100);
+                newPoints.Add(new Point(x, y));
             }
+            chartLine.Points = newPoints;
         }
 
-        private void UpdateMeshCell(int x, int z, ushort[] data, float scale)
+        private void UpdateChartSizes()
         {
-            var mesh = (MeshGeometry3D)meshGrid[z, x].Geometry;
-            var material = (DiffuseMaterial)meshGrid[z, x].Material;
+            if (!IsLoaded || ForefootHeelChart.ActualWidth <= 0 || LeftPressureChart.ActualWidth <= 0 || RightPressureChart.ActualWidth <= 0) return;
+            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, ForefootHeelChart.ActualHeight);
+            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine, LeftPressureChart.ActualHeight);
+            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, RightPressureChart.ActualHeight);
+        }
 
-            // 높이값 계산
-            float h00 = data[z * SENSOR_SIZE + x] * scale;
-            float h10 = data[z * SENSOR_SIZE + (x + 1)] * scale;
-            float h01 = data[(z + 1) * SENSOR_SIZE + x] * scale;
-            float h11 = data[(z + 1) * SENSOR_SIZE + (x + 1)] * scale;
+        private void EstimateWeight(ushort[] data)
+        {
+            double totalForce = 0, totalPressure = 0, totalActiveCells = 0;
+            const double CELL_SIZE = 0.0055, CELL_AREA = CELL_SIZE * CELL_SIZE, GRAVITY = 9.81, PRESSURE_SCALING_FACTOR = 1000.0;
 
-            // 평균 높이 계산
-            float avgHeight = (h00 + h10 + h01 + h11) / 4.0f;
+            for (int i = 0; i < data.Length; i++)
+            {
+                double pressure = data[i];
+                if (pressure > WEIGHT_THRESHOLD)
+                {
+                    double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR;
+                    totalForce += force;
+                    totalActiveCells++;
+                    totalPressure += pressure;
+                }
+            }
 
-            // 정규화된 좌표
-            float nx = x / (float)(SENSOR_SIZE - 1) * 2 - 1;
-            float nz = z / (float)(SENSOR_SIZE - 1) * 2 - 1;
-            float nx1 = (x + 1) / (float)(SENSOR_SIZE - 1) * 2 - 1;
-            float nz1 = (z + 1) / (float)(SENSOR_SIZE - 1) * 2 - 1;
-
-            // 메시 업데이트
-            mesh.Positions.Clear();
-            mesh.Positions.Add(new Point3D(nx, h00, nz));
-            mesh.Positions.Add(new Point3D(nx1, h10, nz));
-            mesh.Positions.Add(new Point3D(nx, h01, nz1));
-            mesh.Positions.Add(new Point3D(nx1, h11, nz1));
-
-            // 색상 업데이트
-            int index = (int)(avgHeight * (heatmapPalette.Length - 1));
-            Color color = avgHeight <= 0 ? Colors.Black : heatmapPalette[index];
-            material.Brush = new SolidColorBrush(color);
+            double estimatedWeight = totalForce / GRAVITY;
+            WeightValueText.Text = totalActiveCells < 1 ? "- kg" : $"{Math.Round(estimatedWeight, 1)} kg";
+            ActiveCellsText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
         }
 
         private Color GetHeatmapColor(float value)
         {
             value = Math.Clamp(value, 0, 1);
-
-            if (value < 0.1f)
-                return Color.FromRgb(0, 0, (byte)(255 * (value / 0.1f)));
-            else if (value < 0.2f)
-                return Color.FromRgb(0, (byte)(255 * ((value - 0.1f) / 0.1f)), 255);
-            else if (value < 0.4f)
-                return Color.FromRgb((byte)(255 * ((value - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.2f) / 0.2f)));
-            else if (value < 0.8f)
-                return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.4f) / 0.4f)), 0);
-            else
-                return Color.FromRgb(255, 0, 0);
+            if (value < 0.1f) return Color.FromRgb(0, 0, (byte)(255 * (value / 0.1f)));
+            if (value < 0.2f) return Color.FromRgb(0, (byte)(255 * ((value - 0.1f) / 0.1f)), 255);
+            if (value < 0.4f) return Color.FromRgb((byte)(255 * ((value - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.2f) / 0.2f)));
+            if (value < 0.8f) return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.4f) / 0.4f)), 0);
+            return Color.FromRgb(255, 0, 0);
         }
 
-        private void ResetView_Click(object sender, RoutedEventArgs e)
+        private void UpdateTrajectoryPoints()
         {
-            camera.Position = initialPosition;
-            camera.LookDirection = initialLookDirection;
-            camera.UpDirection = initialUpDirection;
-            rotationAngle = INITIAL_ANGLE;
-            cameraDistance = Math.Sqrt(INITIAL_POSITION_Y * INITIAL_POSITION_Y + INITIAL_POSITION_Z * INITIAL_POSITION_Z);
-            cameraHeight = INITIAL_POSITION_Z;
-            UpdateCameraPosition();
-        }
-
-        private void RotateLeft_Click(object sender, RoutedEventArgs e)
-        {
-            rotationAngle -= 15;
-            UpdateCameraPosition();
-        }
-
-        private void RotateRight_Click(object sender, RoutedEventArgs e)
-        {
-            rotationAngle += 15;
-            UpdateCameraPosition();
-        }
-
-        private void UpdateCameraPosition()
-        {
-            double angleRad = rotationAngle * Math.PI / 180.0;
-            double x = cameraDistance * Math.Sin(angleRad);
-            double y = cameraDistance * Math.Cos(angleRad);
-
-            camera.Position = new Point3D(x, y, cameraHeight);
-            camera.LookDirection = new Vector3D(-x, -y, -cameraHeight);
-            camera.UpDirection = initialUpDirection;
+            if (copHistory.Count <= 0) return;
+            double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
+            double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+            var points = new PointCollection();
+            foreach (var point in copHistory)
+            {
+                points.Add(new Point(point.X * scaleX, point.Y * scaleY));
+            }
+            copTrajectory.Points = points;
         }
 
         protected override void OnClosed(EventArgs e)
         {
             base.OnClosed(e);
-
-            //if (_updateThrottleTimer != null)
-            //{
-            //    _updateThrottleTimer.Stop();
-            //    _updateThrottleTimer.Dispose();
-            //}
         }
     }
 }
