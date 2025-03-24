@@ -1,438 +1,576 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Windows.Forms;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
-using System.Windows;
-using System.Windows.Media;
-using System.Runtime.InteropServices;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
-using SharpDX;
-using System.Collections.Concurrent;
 
 namespace MultiWebcamApp
 {
-    /// <summary>
-    /// 모든 프레임 소스의 공통 인터페이스
-    /// </summary>
-    public interface IFrameProvider
+    public class RecordingManager : IDisposable
     {
-        (Bitmap frame, long timestamp) GetCurrentFrame();
-    }
+        private readonly int _frameWidth = 960;
+        private readonly int _frameHeight = 540;
+        private readonly double _fps = 30.0;
+        private readonly int _recordingIntervalMinutes = 1;
+        private readonly string _tempFilePath;
+        private readonly string _targetDirectory;
 
-    /// <summary>
-    /// 영상 녹화 및 저장을 관리하는 클래스
-    /// </summary>
-    public class RecordingManager : IDisposable, ICameraControl
-    {
-        private List<IFrameProvider> _frameSources;
-        private string _savePath;
-        private bool _isRecordingRequested = false; // 녹화 요청 플래그
-        private bool _isActuallyRecording = false; // 실제 녹화 진행 중 플래그
-        private const int MAX_FILES = 50; // 최대 저장 파일 수
-        private const int FILE_ROTATION_MINUTES = 5; // 파일 교체 주기 (분)
-        private const int FRAME_WIDTH = 960;
-        private const int FRAME_HEIGHT = 1620; // 540 * 3 (세 개의 화면을 세로로 적층)
-        private const double FPS = 15.0;
-        private const int BUFFER_CAPACITY = 900; // 60초 분량 (15fps * 60s)
+        private ConcurrentQueue<Mat> _frameQueue;
+        private VideoWriter _videoWriter;
+        private Task _recordingTask;
+        private CancellationTokenSource _cts;
+        private bool _isRecording;
+        private readonly object _lockObject = new object();
+        private DateTime _recordingStartTime;
+        private System.Threading.Timer _saveTimer;
 
-        // 프레임 버퍼
-        private ConcurrentQueue<(List<Bitmap> frames, long timestamp)> _frameBuffer;
+        // 깜빡임 방지를 위한 이전 프레임 보관
+        private Mat _lastHeadFrame = null;
+        private Mat _lastBodyFrame = null;
+        private Mat _lastPressureFrame = null;
+        private bool _isMixingFrames = false;
+        private double _frameAlpha = 0.7; // 이전 프레임 비율 (0.7 현재, 0.3 이전)
 
-        // 현재 작업 중인 비디오 파일 경로
-        private string _currentVideoPath;
+        public bool IsRecording => _isRecording;
 
-        // 비디오 처리 작업 및 취소 토큰
-        private Task _videoProcessingTask;
-        private bool _processingCancellationRequested = false;
-
-        // ICameraControl 관련 변수
-        private ICameraControl.OperationMode _currentMode = ICameraControl.OperationMode.Idle;
-
-        public bool IsRecording => _isRecordingRequested;
-
-        /// <summary>
-        /// RecordingManager 생성자
-        /// </summary>
-        /// <param name="sources">프레임 소스 목록</param>
-        /// <param name="savePath">녹화 파일 저장 경로</param>
-        public RecordingManager(List<IFrameProvider> sources, string savePath = @"C:\Users\dulab\Downloads")
+        public RecordingManager()
         {
-            _frameSources = sources;
-            _savePath = savePath;
-            _frameBuffer = new ConcurrentQueue<(List<Bitmap> frames, long timestamp)>();
+            _frameQueue = new ConcurrentQueue<Mat>();
 
-            // 저장 경로가 존재하지 않으면 생성
-            if (!Directory.Exists(_savePath))
+            // 임시 저장 경로: 바탕화면의 LastReplay.mp4
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            _tempFilePath = Path.Combine(desktopPath, "LastReplay.mp4");
+
+            // 최종 저장 경로: 바탕화면 (추후 변경 가능)
+            _targetDirectory = desktopPath;
+
+            // 타이머 설정 (1분 간격으로 저장)
+            _saveTimer = new System.Threading.Timer(SaveVideoTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+        }
+
+        public void StartRecording()
+        {
+            lock (_lockObject)
             {
+                if (_isRecording)
+                    return;
+
+                _isRecording = true;
+                _recordingStartTime = DateTime.Now;
+                _frameQueue = new ConcurrentQueue<Mat>();
+                _cts = new CancellationTokenSource();
+
+                // 기존 임시 파일 삭제
+                if (File.Exists(_tempFilePath))
+                {
+                    try
+                    {
+                        File.Delete(_tempFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"기존 임시 파일 삭제 중 오류: {ex.Message}");
+                    }
+                }
+
+                // 비디오 작성기 초기화 (세로로 적층된 3개 화면의 크기: 960 x 1620)
+                _videoWriter = new VideoWriter(
+                    _tempFilePath,
+                    FourCC.MP4V,
+                    _fps,
+                    new OpenCvSharp.Size(_frameWidth, _frameHeight * 3)
+                );
+
+                if (!_videoWriter.IsOpened())
+                {
+                    throw new Exception("비디오 작성기를 초기화할 수 없습니다.");
+                }
+
+                // 프레임 처리 작업 시작
+                _recordingTask = Task.Run(() => ProcessFrames(_cts.Token));
+
+                // 저장 타이머 시작 (1분 간격)
+                _saveTimer.Change(TimeSpan.FromMinutes(_recordingIntervalMinutes), TimeSpan.FromMilliseconds(-1));
+
+                Console.WriteLine("녹화가 시작되었습니다.");
+            }
+        }
+
+        public void StopRecording()
+        {
+            lock (_lockObject)
+            {
+                if (!_isRecording)
+                    return;
+
+                _isRecording = false;
+                _saveTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+                // 녹화 작업 취소
+                _cts.Cancel();
+
                 try
                 {
-                    Directory.CreateDirectory(_savePath);
+                    // 남아있는 모든 프레임 처리
+                    SaveCurrentFrames();
+
+                    // 비디오 작성기 정리
+                    CleanupVideoWriter();
+
+                    // 최종 파일로 복사
+                    CopyToFinalDestination();
+
+                    // 이전 프레임 정리
+                    ReleaseLastFrames();
+
+                    Console.WriteLine("녹화가 중지되었습니다.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"저장 경로 생성 실패: {ex.Message}");
-                    _savePath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    Console.WriteLine($"녹화 중지 중 오류 발생: {ex.Message}");
                 }
             }
-
-            Console.WriteLine($"녹화 관리자 초기화 완료: 저장 경로 = {_savePath}");
         }
 
-        /// <summary>
-        /// 녹화 시작 요청
-        /// </summary>
-        public void StartRecording()
+        public void AddFrame(FrameData frame)
         {
-            if (_isRecordingRequested) return;
-
-            try
-            {
-                // 녹화 요청 플래그 설정
-                _isRecordingRequested = true;
-
-                // 버퍼 초기화
-                _frameBuffer = new ConcurrentQueue<(List<Bitmap> frames, long timestamp)>();
-
-                Console.WriteLine("녹화 시작 요청됨");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"녹화 시작 요청 실패: {ex.Message}");
-                StopRecording();
-            }
-        }
-
-        /// <summary>
-        /// 녹화 중지
-        /// </summary>
-        public void StopRecording()
-        {
-            if (!_isRecordingRequested) return;
-
-            _isRecordingRequested = false;
-
-            // 버퍼에 남아있는 프레임 처리
-            if (_frameBuffer.Count > 0)
-            {
-                ProcessBufferedFrames();
-            }
-
-            Console.WriteLine("녹화 중지 요청됨");
-        }
-
-        /// <summary>
-        /// 프레임 녹화 처리
-        /// </summary>
-        public void RecordFrame(List<(Bitmap frame, long timestamp)> frames)
-        {
-            // 녹화 요청 상태가 아니거나 Play 모드가 아닌 경우 무시
-            if (!_isRecordingRequested || _currentMode != ICameraControl.OperationMode.Play)
-            {
+            if (!_isRecording || frame == null)
                 return;
-            }
 
             try
             {
-                // 버퍼에 프레임 추가
-                List<Bitmap> bitmaps = frames.Select(f => f.frame).ToList();
-                _frameBuffer.Enqueue((bitmaps, frames[0].timestamp));
-
-                // 실제 녹화가 진행 중이 아니고 버퍼가 찼으면 비디오 처리 시작
-                if (!_isActuallyRecording && _frameBuffer.Count >= BUFFER_CAPACITY)
+                // 3개의 프레임을 세로로 결합
+                using (var combinedFrame = CombineFrames(frame))
                 {
-                    ProcessBufferedFrames();
+                    _frameQueue.Enqueue(combinedFrame.Clone());
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"프레임 버퍼링 오류: {ex.Message}");
+                Console.WriteLine($"프레임 추가 중 오류: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// 버퍼에 저장된 프레임을 처리하여 비디오 파일 생성
-        /// </summary>
-        private void ProcessBufferedFrames()
+        private Mat CombineFrames(FrameData frameData)
         {
-            // 이미 처리 중이면 새 작업 시작하지 않음
-            if (_isActuallyRecording)
+            // 출력할 결합된 이미지 생성 (세로로 3개 적층)
+            Mat combinedFrame = new Mat(_frameHeight * 3, _frameWidth, MatType.CV_8UC3, Scalar.Black);
+
+            // Head 프레임 처리 (상단)
+            ProcessHeadFrame(frameData, combinedFrame);
+
+            // Body 프레임 처리 (중간)
+            ProcessBodyFrame(frameData, combinedFrame);
+
+            // Pressure 데이터 시각화 (하단)
+            ProcessPressureData(frameData, combinedFrame);
+
+            return combinedFrame;
+        }
+
+        private void ProcessHeadFrame(FrameData frameData, Mat combinedFrame)
+        {
+            if (frameData.WebcamHead != null && !frameData.WebcamHead.Empty())
             {
+                // 헤드 프레임 리사이징
+                Mat resizedHead = new Mat();
+                Cv2.Resize(frameData.WebcamHead, resizedHead, new OpenCvSharp.Size(_frameWidth, _frameHeight));
+
+                // 깜빡임 방지를 위한 프레임 혼합
+                if (_isMixingFrames && _lastHeadFrame != null && !_lastHeadFrame.Empty())
+                {
+                    try
+                    {
+                        Mat blendedHead = new Mat();
+                        Cv2.AddWeighted(resizedHead, _frameAlpha, _lastHeadFrame, 1.0 - _frameAlpha, 0, blendedHead);
+
+                        // 혼합된 프레임 복사
+                        Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
+                        blendedHead.CopyTo(headRegion);
+
+                        blendedHead.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"헤드 프레임 혼합 중 오류: {ex.Message}");
+
+                        // 오류 시 현재 프레임만 사용
+                        Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
+                        resizedHead.CopyTo(headRegion);
+                    }
+                }
+                else
+                {
+                    // 혼합 없이 현재 프레임 사용
+                    Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
+                    resizedHead.CopyTo(headRegion);
+                }
+
+                // 이전 프레임 정리 및 저장
+                if (_lastHeadFrame != null)
+                {
+                    _lastHeadFrame.Dispose();
+                }
+                _lastHeadFrame = resizedHead.Clone();
+            }
+            else if (_lastHeadFrame != null && !_lastHeadFrame.Empty())
+            {
+                // 현재 프레임이 없으면 이전 프레임 사용
+                Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
+                _lastHeadFrame.CopyTo(headRegion);
+            }
+        }
+
+        private void ProcessBodyFrame(FrameData frameData, Mat combinedFrame)
+        {
+            if (frameData.WebcamBody != null && !frameData.WebcamBody.Empty())
+            {
+                // 바디 프레임 리사이징
+                Mat resizedBody = new Mat();
+                Cv2.Resize(frameData.WebcamBody, resizedBody, new OpenCvSharp.Size(_frameWidth, _frameHeight));
+
+                // 깜빡임 방지를 위한 프레임 혼합
+                if (_isMixingFrames && _lastBodyFrame != null && !_lastBodyFrame.Empty())
+                {
+                    try
+                    {
+                        Mat blendedBody = new Mat();
+                        Cv2.AddWeighted(resizedBody, _frameAlpha, _lastBodyFrame, 1.0 - _frameAlpha, 0, blendedBody);
+
+                        // 혼합된 프레임 복사
+                        Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                        blendedBody.CopyTo(bodyRegion);
+
+                        blendedBody.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"바디 프레임 혼합 중 오류: {ex.Message}");
+
+                        // 오류 시 현재 프레임만 사용
+                        Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                        resizedBody.CopyTo(bodyRegion);
+                    }
+                }
+                else
+                {
+                    // 혼합 없이 현재 프레임 사용
+                    Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                    resizedBody.CopyTo(bodyRegion);
+                }
+
+                // 이전 프레임 정리 및 저장
+                if (_lastBodyFrame != null)
+                {
+                    _lastBodyFrame.Dispose();
+                }
+                _lastBodyFrame = resizedBody.Clone();
+            }
+            else if (_lastBodyFrame != null && !_lastBodyFrame.Empty())
+            {
+                // 현재 프레임이 없으면 이전 프레임 사용
+                Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                _lastBodyFrame.CopyTo(bodyRegion);
+            }
+        }
+
+        private void ProcessPressureData(FrameData frameData, Mat combinedFrame)
+        {
+            if (frameData.PressureData != null)
+            {
+                // 새로운 압력 데이터 프레임 생성
+                Mat pressureFrame = new Mat(_frameHeight, _frameWidth, MatType.CV_8UC3, Scalar.Black);
+                VisualizePressureData(pressureFrame, frameData.PressureData);
+
+                // 깜빡임 방지를 위한 프레임 혼합
+                if (_isMixingFrames && _lastPressureFrame != null && !_lastPressureFrame.Empty())
+                {
+                    try
+                    {
+                        Mat blendedPressure = new Mat();
+                        Cv2.AddWeighted(pressureFrame, _frameAlpha, _lastPressureFrame, 1.0 - _frameAlpha, 0, blendedPressure);
+
+                        // 혼합된 프레임 복사
+                        Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                        blendedPressure.CopyTo(pressureRegion);
+
+                        blendedPressure.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"압력 프레임 혼합 중 오류: {ex.Message}");
+
+                        // 오류 시 현재 프레임만 사용
+                        Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                        pressureFrame.CopyTo(pressureRegion);
+                    }
+                }
+                else
+                {
+                    // 혼합 없이 현재 프레임 사용
+                    Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                    pressureFrame.CopyTo(pressureRegion);
+                }
+
+                // 이전 프레임 정리 및 저장
+                if (_lastPressureFrame != null)
+                {
+                    _lastPressureFrame.Dispose();
+                }
+                _lastPressureFrame = pressureFrame.Clone();
+                pressureFrame.Dispose();
+            }
+            else if (_lastPressureFrame != null && !_lastPressureFrame.Empty())
+            {
+                // 현재 압력 데이터가 없으면 이전 프레임 사용
+                Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                _lastPressureFrame.CopyTo(pressureRegion);
+            }
+        }
+
+        private void VisualizePressureData(Mat frame, ushort[] pressureData)
+        {
+            if (pressureData == null || pressureData.Length == 0)
                 return;
+
+            int padding = 40;
+            int cellSize = (_frameWidth - (padding * 2)) / 96;
+            int dataSize = 96;  // 96x96 pressure data
+
+            // 최대값 찾기 (색상 매핑용)
+            ushort maxValue = 0;
+            foreach (var value in pressureData)
+            {
+                if (value > maxValue) maxValue = value;
             }
 
-            _isActuallyRecording = true;
-            _currentVideoPath = GetNewFileName();
+            // 값이 없으면 반환
+            if (maxValue == 0) return;
 
-            // 현재 버퍼의 프레임을 처리용 컬렉션으로 복사
-            var framesToProcess = new List<(List<Bitmap> frames, long timestamp)>();
-            int frameCount = _frameBuffer.Count;
-
-            for (int i = 0; i < frameCount; i++)
+            // 압력 데이터 시각화
+            for (int y = 0; y < dataSize; y++)
             {
-                if (_frameBuffer.TryDequeue(out var frameData))
+                for (int x = 0; x < dataSize; x++)
                 {
-                    framesToProcess.Add(frameData);
+                    int index = y * dataSize + x;
+                    if (index < pressureData.Length)
+                    {
+                        // 값에 따라 색상 계산 (청색 -> 청록색 -> 녹색 -> 노란색 -> 빨간색)
+                        float normalizedValue = Math.Min(1.0f, pressureData[index] / (float)maxValue);
+                        Scalar color;
+
+                        if (normalizedValue < 0.1f)
+                            color = new Scalar(255, 0, (byte)(255 * (normalizedValue / 0.1f))); // 청색
+                        else if (normalizedValue < 0.2f)
+                            color = new Scalar(255, (byte)(255 * ((normalizedValue - 0.1f) / 0.1f)), 255); // 청록색
+                        else if (normalizedValue < 0.4f)
+                            color = new Scalar((byte)(255 * ((normalizedValue - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (normalizedValue - 0.2f) / 0.2f))); // 녹색
+                        else if (normalizedValue < 0.8f)
+                            color = new Scalar(0, (byte)(255 * (1 - (normalizedValue - 0.4f) / 0.4f)), 255); // 노란색
+                        else
+                            color = new Scalar(0, 0, 255); // 빨간색
+
+                        // 셀 그리기
+                        int cellX = padding + x * cellSize;
+                        int cellY = padding + y * cellSize;
+
+                        Rect cellRect = new Rect(cellX, cellY, cellSize, cellSize);
+                        frame.Rectangle(cellRect, color, -1);
+                    }
                 }
             }
-
-            // 백그라운드에서 비디오 생성
-            _videoProcessingTask = Task.Run(() => CreateVideoFromFrames(framesToProcess, _currentVideoPath));
         }
 
-        /// <summary>
-        /// 프레임 목록으로부터 비디오 파일 생성
-        /// </summary>
-        private void CreateVideoFromFrames(List<(List<Bitmap> frames, long timestamp)> framesToProcess, string outputPath)
+        private async Task ProcessFrames(CancellationToken token)
         {
-            Console.WriteLine($"비디오 생성 시작: {outputPath}, 프레임 수: {framesToProcess.Count}");
-
-            OpenCvSharp.VideoWriter writer = null;
-
             try
             {
-                // OpenCV VideoWriter 초기화 - H.264 코덱 사용
-                writer = new OpenCvSharp.VideoWriter(
-                    outputPath,
-                    OpenCvSharp.VideoWriter.FourCC('H', '2', '6', '4'),
-                    FPS,
-                    new OpenCvSharp.Size(FRAME_WIDTH, FRAME_HEIGHT)
-                );
-
-                if (!writer.IsOpened())
+                while (!token.IsCancellationRequested || !_frameQueue.IsEmpty)
                 {
-                    Console.WriteLine("H264 코덱을 사용할 수 없습니다. MJPG로 대체합니다.");
-
-                    // H.264 코덱을 사용할 수 없는 경우 MJPG로 대체
-                    writer = new OpenCvSharp.VideoWriter(
-                        outputPath,
-                        OpenCvSharp.VideoWriter.FourCC('M', 'J', 'P', 'G'),
-                        FPS,
-                        new OpenCvSharp.Size(FRAME_WIDTH, FRAME_HEIGHT)
-                    );
-
-                    if (!writer.IsOpened())
+                    if (_frameQueue.TryDequeue(out Mat frame))
                     {
-                        throw new Exception("비디오 라이터를 초기화할 수 없습니다.");
-                    }
-                }
-
-                // 정렬된 프레임 처리
-                var sortedFrames = framesToProcess.OrderBy(f => f.timestamp).ToList();
-
-                foreach (var frameData in sortedFrames)
-                {
-                    // 취소 요청 확인
-                    if (_processingCancellationRequested)
-                    {
-                        Console.WriteLine("비디오 처리 취소됨");
-                        break;
-                    }
-
-                    // 세로로 결합할 큰 Mat 생성
-                    using (var combinedMat = new Mat(FRAME_HEIGHT, FRAME_WIDTH, MatType.CV_8UC3, Scalar.Black))
-                    {
-                        for (int i = 0; i < frameData.frames.Count; i++)
+                        // 비디오 작성기가 열려있는지 확인
+                        if (_videoWriter != null && _videoWriter.IsOpened())
                         {
-                            var frame = frameData.frames[i];
-                            if (frame != null)
-                            {
-                                // Bitmap을 Mat으로 변환
-                                using (var frameMat = BitmapConverter.ToMat(frame))
-                                {
-                                    if (!frameMat.Empty())
-                                    {
-                                        // 각 프레임을 세로로 배치 (540 픽셀 간격)
-                                        var roi = new OpenCvSharp.Rect(0, i * 540, Math.Min(frameMat.Width, FRAME_WIDTH), Math.Min(frameMat.Height, 540));
-                                        var targetRegion = combinedMat[roi];
-                                        frameMat.CopyTo(targetRegion);
-                                    }
-                                }
-                            }
+                            _videoWriter.Write(frame);
                         }
 
-                        // 결합된 프레임 저장
-                        writer.Write(combinedMat);
-                    }
-
-                    // 프레임의 Bitmap 리소스 해제
-                    foreach (var bitmap in frameData.frames)
-                    {
-                        bitmap?.Dispose();
-                    }
-                }
-
-                Console.WriteLine($"비디오 생성 완료: {outputPath}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"비디오 생성 오류: {ex.Message}");
-            }
-            finally
-            {
-                // 자원 해제
-                writer?.Release();
-                writer?.Dispose();
-
-                _isActuallyRecording = false;
-                _processingCancellationRequested = false;
-            }
-        }
-
-        /// <summary>
-        /// 새 파일명 생성
-        /// </summary>
-        private string GetNewFileName()
-        {
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            return Path.Combine(_savePath, $"Recording_{timestamp}.mp4");
-        }
-
-        #region ICameraControl 구현
-
-        /// <summary>
-        /// 현재 작동 모드 반환
-        /// </summary>
-        public ICameraControl.OperationMode GetCurrentMode()
-        {
-            return _currentMode;
-        }
-
-        /// <summary>
-        /// 키 입력 처리
-        /// </summary>
-        public void SetKey(string key)
-        {
-            switch (key.ToLower())
-            {
-                case "r": // 리셋/다시시작
-                    if (_currentMode == ICameraControl.OperationMode.Idle)
-                    {
-                        _currentMode = ICameraControl.OperationMode.Play;
+                        // 프레임 해제
+                        frame.Dispose();
                     }
                     else
                     {
-                        StopRecording();
-                        _currentMode = ICameraControl.OperationMode.Idle;
+                        // 큐가 비어있으면 잠시 대기
+                        await Task.Delay(10, token);
                     }
-                    break;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 작업 취소는 정상적인 종료
+                Console.WriteLine("프레임 처리 작업이 취소되었습니다.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"프레임 처리 중 오류: {ex.Message}");
+            }
+        }
 
-                case "p": // 재생/일시정지 토글
-                    if (_currentMode == ICameraControl.OperationMode.Play)
-                    {
-                        StopRecording();
-                        _currentMode = ICameraControl.OperationMode.Stop;
-                    }
-                    else if (_currentMode == ICameraControl.OperationMode.Stop)
-                    {
-                        _currentMode = ICameraControl.OperationMode.Play;
-                    }
-                    break;
+        private void SaveVideoTimerCallback(object state)
+        {
+            try
+            {
+                // 현재 기록 중인 비디오 저장 및 새 파일 시작
+                SaveCurrentFrames();
 
-                    // 기타 키 처리는 필요에 따라 추가
+                // 최종 대상으로 복사
+                CopyToFinalDestination();
+
+                // 새 비디오 작성기 초기화
+                ReinitializeVideoWriter();
+
+                // 타이머 재설정
+                if (_isRecording)
+                {
+                    _saveTimer.Change(TimeSpan.FromMinutes(_recordingIntervalMinutes), TimeSpan.FromMilliseconds(-1));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"비디오 저장 중 오류: {ex.Message}");
+            }
+        }
+
+        private void SaveCurrentFrames()
+        {
+            lock (_lockObject)
+            {
+                // 비디오 작성기가 열려있는지 확인
+                if (_videoWriter != null && _videoWriter.IsOpened())
+                {
+                    // 대기 중인 모든 프레임을 처리하기 위해 임시 큐 사용
+                    var tempQueue = new ConcurrentQueue<Mat>();
+
+                    // 현재 큐의 모든 프레임을 임시 큐로 이동
+                    while (_frameQueue.TryDequeue(out Mat frame))
+                    {
+                        tempQueue.Enqueue(frame);
+                    }
+
+                    // 임시 큐의 모든 프레임을 처리
+                    while (tempQueue.TryDequeue(out Mat frame))
+                    {
+                        _videoWriter.Write(frame);
+                        frame.Dispose();
+                    }
+
+                    // 비디오 작성기 정리
+                    CleanupVideoWriter();
+                }
+            }
+        }
+
+        private void CleanupVideoWriter()
+        {
+            if (_videoWriter != null)
+            {
+                if (_videoWriter.IsOpened())
+                {
+                    _videoWriter.Release();
+                }
+                _videoWriter.Dispose();
+                _videoWriter = null;
+            }
+        }
+
+        private void ReinitializeVideoWriter()
+        {
+            if (_isRecording)
+            {
+                _videoWriter = new VideoWriter(
+                    _tempFilePath,
+                    FourCC.MP4V,
+                    _fps,
+                    new OpenCvSharp.Size(_frameWidth, _frameHeight * 3)
+                );
+
+                if (!_videoWriter.IsOpened())
+                {
+                    throw new Exception("비디오 작성기를 재초기화할 수 없습니다.");
+                }
+            }
+        }
+
+        private void CopyToFinalDestination()
+        {
+            if (File.Exists(_tempFilePath))
+            {
+                try
+                {
+                    // 현재 날짜와 시간을 이용하여 파일명 생성
+                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    string finalFileName = $"Recording_{timestamp}.mp4";
+                    string finalFilePath = Path.Combine(_targetDirectory, finalFileName);
+
+                    // 파일 복사
+                    File.Copy(_tempFilePath, finalFilePath, true);
+                    Console.WriteLine($"녹화 파일이 저장되었습니다: {finalFilePath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"최종 대상으로 파일 복사 중 오류: {ex.Message}");
+                }
+            }
+        }
+
+        private void ReleaseLastFrames()
+        {
+            if (_lastHeadFrame != null)
+            {
+                _lastHeadFrame.Dispose();
+                _lastHeadFrame = null;
             }
 
-            Console.WriteLine($"RecordingManager 모드 변경: {_currentMode}");
+            if (_lastBodyFrame != null)
+            {
+                _lastBodyFrame.Dispose();
+                _lastBodyFrame = null;
+            }
+
+            if (_lastPressureFrame != null)
+            {
+                _lastPressureFrame.Dispose();
+                _lastPressureFrame = null;
+            }
         }
 
-        /// <summary>
-        /// 지연 시간 설정 (녹화 매니저에서는 사용하지 않음)
-        /// </summary>
-        public void SetDelay(int delaySeconds)
+        public void EnableFrameMixing(bool enable)
         {
-            // 필요하면 구현
+            _isMixingFrames = enable;
         }
 
-        /// <summary>
-        /// 프레임 처리 (녹화 매니저에서는 사용하지 않음)
-        /// </summary>
-        public void ProcessFrame(long timestamp)
+        public void SetFrameMixingRatio(double alpha)
         {
-            // 필요하면 구현
+            _frameAlpha = Math.Clamp(alpha, 0.0, 1.0);
         }
 
-        #endregion
-
-        /// <summary>
-        /// 자원 해제
-        /// </summary>
         public void Dispose()
         {
             StopRecording();
 
-            // 취소 요청 설정
-            _processingCancellationRequested = true;
+            _saveTimer?.Dispose();
+            _saveTimer = null;
 
-            // 비디오 처리 작업이 완료될 때까지 대기 (최대 5초)
-            if (_videoProcessingTask != null && !_videoProcessingTask.IsCompleted)
-            {
-                try
-                {
-                    Task.WaitAny(new[] { _videoProcessingTask }, 5000);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"비디오 처리 작업 종료 중 오류: {ex.Message}");
-                }
-            }
-        }
-    }
+            CleanupVideoWriter();
+            ReleaseLastFrames();
 
-    /// <summary>
-    /// WPF 이미지 변환 유틸리티
-    /// </summary>
-    public static class WpfToBitmapConverter
-    {
-        [DllImport("gdi32.dll")]
-        private static extern bool DeleteObject(IntPtr hObject);
-
-        /// <summary>
-        /// RenderTargetBitmap을 System.Drawing.Bitmap으로 변환
-        /// </summary>
-        public static Bitmap ConvertToBitmap(RenderTargetBitmap source)
-        {
-            if (source == null) return null;
-
-            var bitmapEncoder = new BmpBitmapEncoder();
-            bitmapEncoder.Frames.Add(BitmapFrame.Create(source));
-
-            using (var stream = new MemoryStream())
-            {
-                bitmapEncoder.Save(stream);
-                stream.Seek(0, SeekOrigin.Begin);
-                return new Bitmap(stream);
-            }
-        }
-
-        /// <summary>
-        /// WPF Visual을 Bitmap으로 변환
-        /// </summary>
-        public static Bitmap CaptureVisual(System.Windows.Media.Visual visual, double dpiX = 96, double dpiY = 96)
-        {
-            if (visual == null) return null;
-
-            var bounds = VisualTreeHelper.GetDescendantBounds(visual);
-            if (bounds.IsEmpty) return null;
-
-            var bitmap = new RenderTargetBitmap(
-                (int)bounds.Width, (int)bounds.Height,
-                dpiX, dpiY,
-                PixelFormats.Pbgra32);
-
-            var drawingVisual = new DrawingVisual();
-            using (var context = drawingVisual.RenderOpen())
-            {
-                var brush = new VisualBrush(visual);
-                context.DrawRectangle(brush, null, new System.Windows.Rect(new System.Windows.Point(), bounds.Size));
-            }
-
-            bitmap.Render(drawingVisual);
-            return ConvertToBitmap(bitmap);
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 }

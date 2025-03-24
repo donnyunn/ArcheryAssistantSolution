@@ -12,6 +12,8 @@ using Multimedia;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.Reflection.Metadata;
+using System.Windows.Media.Imaging;
+using System.Windows.Media;
 
 namespace MultiWebcamApp
 {
@@ -42,7 +44,8 @@ namespace MultiWebcamApp
         
         private volatile bool _isClosing; // 종료 중 플래그
 
-        PressurePadSource _pressurePadSource;
+        private PressurePadSource _pressurePadSource;
+        private RecordingManager _recordingManager;
 
         public MainForm()
         {
@@ -72,6 +75,8 @@ namespace MultiWebcamApp
             _pressureDisplay = new PressureMapViewer.MainWindow();
 
             _pressureDisplay.ResetPortsRequested += PressureDisplay_ResetPortsRequested;
+
+            _recordingManager = new RecordingManager();
 
             // 프레임 시간 계산 (밀리초)
             //_frameTimeMs = (int)(1000.0 / TARGET_FPS);
@@ -226,6 +231,11 @@ namespace MultiWebcamApp
                         {
                             if (!_isClosing && IsHandleCreated) // 중복 체크
                             {
+                                if (_recordingManager != null && _recordingManager.IsRecording && _mode == OperationMode.Play)
+                                {
+                                    _recordingManager.AddFrame(frame);
+                                }
+
                                 UpdateUI(frame, msgLower, msgUpper);
                             }
                         }));
@@ -266,13 +276,13 @@ namespace MultiWebcamApp
             // MainForm 속성
             this.Location = new System.Drawing.Point(0, 1080);
             this.Size = new System.Drawing.Size(2560, 720);
-            this.BackColor = Color.GhostWhite;
+            this.BackColor = System.Drawing.Color.GhostWhite;
 
             // 종료 버튼 속성
             _closeButton.Location = new System.Drawing.Point(x, y);
             _closeButton.Size = new System.Drawing.Size(width, height);
             _closeButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
-            _closeButton.BackColor = Color.LightGray;
+            _closeButton.BackColor = System.Drawing.Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
             _closeButton.Text = "종료";
             _closeButton.Click += new EventHandler(CloseButton_Click);
@@ -284,8 +294,8 @@ namespace MultiWebcamApp
             _delayTextbox.Size = new System.Drawing.Size(margin * 2, margin);
             _delayTextbox.Font = new Font("Calibri", margin, FontStyle.Bold);
             _delayTextbox.TextAlign = HorizontalAlignment.Center;
-            _delayTextbox.BackColor = Color.Black;
-            _delayTextbox.ForeColor = Color.Red;
+            _delayTextbox.BackColor = System.Drawing.Color.Black;
+            _delayTextbox.ForeColor = System.Drawing.Color.Red;
             _delayTextbox.BorderStyle = BorderStyle.FixedSingle;
             _delayTextbox.Text = "0";
             _delayTextbox.ReadOnly = true;
@@ -305,7 +315,7 @@ namespace MultiWebcamApp
             _startButton.Location = new System.Drawing.Point(x, y);
             _startButton.Size = new System.Drawing.Size(width, height);
             _startButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
-            _startButton.BackColor = Color.LightGray;
+            _startButton.BackColor = System.Drawing.Color.LightGray;
             _startButton.TextAlign = ContentAlignment.MiddleCenter;
             _startButton.Text = "시작";
             _startButton.Click += new EventHandler(StartButton_Click);
@@ -322,7 +332,7 @@ namespace MultiWebcamApp
             _backwardButton.Size = new System.Drawing.Size(width, height);
             _backwardButton.FlatStyle = FlatStyle.Flat;
             _backwardButton.FlatAppearance.BorderSize = 2;
-            _backwardButton.BackColor = Color.LightGray;
+            _backwardButton.BackColor = System.Drawing.Color.LightGray;
             _backwardButton.Text = "";
             _backwardButton.IconChar = IconChar.StepBackward;
             _backwardButton.IconSize = 100;
@@ -337,7 +347,7 @@ namespace MultiWebcamApp
             _pauseButton.Size = new System.Drawing.Size(width, height);
             _pauseButton.FlatStyle = FlatStyle.Flat;
             _pauseButton.FlatAppearance.BorderSize = 2;
-            _pauseButton.BackColor = Color.LightGray;
+            _pauseButton.BackColor = System.Drawing.Color.LightGray;
             _pauseButton.Text = "";
             _pauseButton.IconChar = IconChar.Play;
             _pauseButton.IconSize = 100;
@@ -350,7 +360,7 @@ namespace MultiWebcamApp
             _forwardButton.Size = new System.Drawing.Size(width, height);
             _forwardButton.FlatStyle = FlatStyle.Flat;
             _forwardButton.FlatAppearance.BorderSize = 2;
-            _forwardButton.BackColor = Color.LightGray;
+            _forwardButton.BackColor = System.Drawing.Color.LightGray;
             _forwardButton.Text = "";
             _forwardButton.IconChar = IconChar.StepForward;
             _forwardButton.IconSize = 100;
@@ -369,7 +379,7 @@ namespace MultiWebcamApp
             _slowButton.Location = new System.Drawing.Point(x, y);
             _slowButton.Size = new System.Drawing.Size(width, height);
             _slowButton.Font = new Font("Calibri", 50, FontStyle.Bold);
-            _slowButton.BackColor = Color.LightGray;
+            _slowButton.BackColor = System.Drawing.Color.LightGray;
             _slowButton.TextAlign= ContentAlignment.MiddleCenter;
             _slowButton.Text = "Slow";
             _slowButton.Click += new EventHandler(SlowButton_Click);
@@ -381,10 +391,10 @@ namespace MultiWebcamApp
             height = 30;
             _recordButton.Location = new System.Drawing.Point(x, y);
             _recordButton.Size = new System.Drawing.Size(width, height);
-            _recordButton.OnColor = Color.Red;
-            _recordButton.OffColor = Color.DarkGray;
-            _recordButton.OnText = "녹화중";
-            _recordButton.OffText = "녹화";
+            _recordButton.OnColor = System.Drawing.Color.Red;
+            _recordButton.OffColor = System.Drawing.Color.DarkGray;
+            _recordButton.OnText = "녹화 On";
+            _recordButton.OffText = "녹화 Off";
             _recordButton.TextFont = new Font("맑은 고딕", 24, FontStyle.Bold);
             _recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
             //_recordButton.Enabled = false;
@@ -483,6 +493,12 @@ namespace MultiWebcamApp
                 _isPaused = false;
                 _delaySlider.Enabled = false;
                 _buffer.Clear();
+
+                // 녹화 버튼이 체크되어 있으면 녹화 시작
+                if (_recordButton.Checked && _recordingManager != null)
+                {
+                    _recordingManager.StartRecording();
+                }
             }
             else
             {
@@ -492,6 +508,12 @@ namespace MultiWebcamApp
                 _delaySlider.Enabled = true;
                 _buffer.Clear();
                 _pressurePadSource.ResetAllPorts();
+
+                // 녹화 중이면 녹화 중지
+                if (_recordingManager != null && _recordingManager.IsRecording)
+                {
+                    _recordingManager.StopRecording();
+                }
             }
             UpdatePlayPauseButton();
             //_webcamFormHead.SetKey("r");
@@ -559,7 +581,7 @@ namespace MultiWebcamApp
                 if (_slowLevel != 1) _isSlowMode = true;
                 else _isSlowMode = false;
 
-                _slowButton.BackColor = _isSlowMode ? Color.DarkGray : Color.LightGray;
+                _slowButton.BackColor = _isSlowMode ? System.Drawing.Color.DarkGray : System.Drawing.Color.LightGray;
                 _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
                 //_webcamFormHead.SetKey("s");
                 //_webcamFormBody.SetKey("s");
@@ -570,42 +592,43 @@ namespace MultiWebcamApp
 
         private void RecordButton_Checked(Object? sender, EventArgs e)
         {
-            Console.WriteLine($"{_recordButton.Checked}");
-            //if (_recordingManager == null) return;
+            Console.WriteLine($"Record Status: {_recordButton.Checked}");
 
-            //try
-            //{
-            //    if (_recordButton.Checked)
-            //    {
-            //        _recordingManager.StartRecording();
-            //    }
-            //    else
-            //    {
-            //        _recordingManager.StopRecording();
-            //    }
-            //}
-            //catch (Exception ex)
-            //{
-            //    Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
-            //    _recordButton.Checked = false;
-            //}
+            if (_recordingManager == null) return;
+
+            try
+            {
+                if (_recordButton.Checked)
+                {
+                    Console.WriteLine("Record Ready.");
+                }
+                else
+                {
+                    _recordingManager.StopRecording();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
+                _recordButton.Checked = false;
+            }
         }
 
         private void UpdateRecordingStatus()
         {
-            //if (_recordingManager == null) return;
+            if (_recordingManager == null) return;
 
-            //// 녹화 중이면 버튼 깜빡임 효과
-            //if (_recordingManager.IsRecording && _isStarted)
-            //{
-            //    _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
-            //        ? System.Drawing.Color.DarkRed
-            //        : System.Drawing.Color.Red;
-            //}
-            //else
-            //{
-            //    _recordButton.OnColor = System.Drawing.Color.Red;
-            //}
+            // 녹화 중이면 버튼 깜빡임 효과
+            if (_recordingManager.IsRecording && _isStarted)
+            {
+                _recordButton.OnColor = _recordButton.OnColor == System.Drawing.Color.Red
+                    ? System.Drawing.Color.DarkRed
+                    : System.Drawing.Color.Red;
+            }
+            else
+            {
+                _recordButton.OnColor = System.Drawing.Color.Red;
+            }
         }
 
         private void CleanupRecordingResources()
@@ -620,6 +643,9 @@ namespace MultiWebcamApp
             _backwardInitialTimer?.Dispose();
             _forwardInitialTimer?.Stop();
             _forwardInitialTimer?.Dispose();
+
+            _recordingManager?.Dispose();
+            _recordingManager = null;
         }
 
         private void UpdatePlayPauseButton()
@@ -684,6 +710,7 @@ namespace MultiWebcamApp
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            _recordingManager?.Dispose();
             base.OnFormClosed(e);
         }
     }
