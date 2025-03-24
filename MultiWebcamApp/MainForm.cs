@@ -42,6 +42,8 @@ namespace MultiWebcamApp
         
         private volatile bool _isClosing; // 종료 중 플래그
 
+        PressurePadSource _pressurePadSource;
+
         public MainForm()
         {
             InitializeComponent();
@@ -51,6 +53,7 @@ namespace MultiWebcamApp
             var webcamSource1 = new WebcamSource(0);
             var webcamSource2 = new WebcamSource(1);
             var pressurePadSource = new PressurePadSource();
+            _pressurePadSource = pressurePadSource;
             var sources = new List<IFrameSource> { webcamSource1, webcamSource2 };
             // 압력패드 소스 추가 여부 확인
             try
@@ -67,6 +70,8 @@ namespace MultiWebcamApp
             _headDisplay = new CameraViewer.MainWindow();
             _bodyDisplay = new CameraViewer.MainWindow();
             _pressureDisplay = new PressureMapViewer.MainWindow();
+
+            _pressureDisplay.ResetPortsRequested += PressureDisplay_ResetPortsRequested;
 
             // 프레임 시간 계산 (밀리초)
             //_frameTimeMs = (int)(1000.0 / TARGET_FPS);
@@ -448,6 +453,26 @@ namespace MultiWebcamApp
             //_footpadForm.SetDelay(_delaySeconds);
         }
 
+        private void PressureDisplay_ResetPortsRequested(object sender, EventArgs e)
+        {
+            if (_pressurePadSource != null)
+            {
+                try
+                {
+                    _pressurePadSource.ResetAllPorts();
+                    Console.WriteLine("Ports reset completed from MainForm.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error resetting ports from MainForm: {ex.Message}");
+                }
+            }
+            else
+            {
+                Console.WriteLine("No PressurePadSource available to reset.");
+            }
+        }
+
         private void StartButton_Click(object? sender, EventArgs e)
         {
             _isStarted = !_isStarted;
@@ -466,6 +491,7 @@ namespace MultiWebcamApp
                 _isPaused = true;
                 _delaySlider.Enabled = true;
                 _buffer.Clear();
+                _pressurePadSource.ResetAllPorts();
             }
             UpdatePlayPauseButton();
             //_webcamFormHead.SetKey("r");

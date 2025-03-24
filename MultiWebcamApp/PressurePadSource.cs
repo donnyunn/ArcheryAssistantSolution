@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using SharpDX.Direct3D11;
 
 namespace MultiWebcamApp
 {
@@ -23,9 +24,14 @@ namespace MultiWebcamApp
 
         private const int PACKET_SIZE = 4622;
         private const int DATA_OFFSET = 11;
-        private const int HEADER_SIZE = 11;
+        private const int HEADER_SIZE = 7;
         private const int DATA_SIZE = 4608;
-        private static readonly byte[] HEADER_PATTERN = { 0x53, 0x41, 0x31, 0x41, 0x33, 0x35, 0x35, 0x31, 0x32, 0x30, 0x30 };
+        private const int TIMEOUT_MS = 100;
+        private static readonly byte[] HEADER_PATTERN = { 0x53, 0x41, 0x31, 0x41, 0x33, 0x35, 0x35 };
+        private static readonly byte[] TAIL_PATTERN = { 0x46, 0x46, 0x45 };
+
+        private const int REQUEST_SIZE = 14;
+        private static readonly byte[] REQUEST_PATTERN = { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
 
         private static readonly Point[] StartPositions = new Point[]
         {
@@ -44,6 +50,20 @@ namespace MultiWebcamApp
             _cts = new CancellationTokenSource();
 
             // COM 포트 초기화 시도
+            InitializePorts();
+
+            //_requestTimer = new Multimedia.Timer()
+            //{
+            //    Period = 16,
+            //    Resolution = 1,
+            //    Mode = Multimedia.TimerMode.Periodic
+            //};
+            //_requestTimer.Tick += new EventHandler(RequestTimer_Tick);
+        }
+
+        private void InitializePorts()
+        {
+            _isInitialized = false;
             for (int i = 0; i < _portNames.Length; i++)
             {
                 try
@@ -51,7 +71,7 @@ namespace MultiWebcamApp
                     _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
                     {
                         ReadTimeout = 50,
-                        ReadBufferSize = 13866
+                        ReadBufferSize = 16384
                     };
                     _ports[i].Open();
                     _isInitialized = true;
@@ -68,14 +88,6 @@ namespace MultiWebcamApp
             {
                 Console.WriteLine("No pressure pad devices initialized. Running in camera-only mode.");
             }
-
-            //_requestTimer = new Multimedia.Timer()
-            //{
-            //    Period = 10,
-            //    Resolution = 1,
-            //    Mode = Multimedia.TimerMode.Periodic
-            //};
-            //_requestTimer.Tick += new EventHandler(RequestTimer_Tick);
         }
 
         public FrameData CaptureFrame()
@@ -97,7 +109,7 @@ namespace MultiWebcamApp
 
             // 유효한 포트만 대상으로 요청 및 캡처 시작
             var activePorts = _ports.Where(p => p != null && p.IsOpen).ToArray();
-            _requestTasks = _ports.Select(port => Task.Run(() => RequestLoop(port, _cts.Token))).ToArray();
+            //_requestTasks = _ports.Select(port => Task.Run(() => RequestLoop(port, _cts.Token))).ToArray();
             //_requestTimer.Start();
             _captureTask = Task.Run(() => CaptureLoop(activePorts, _cts.Token));
         }
@@ -131,29 +143,69 @@ namespace MultiWebcamApp
             _captureTask = null;
         }
 
+        public void ResetAllPorts()
+        {
+            Console.WriteLine("Resetting all pressure pad ports...");
+
+            if (!_isStopped)
+            {
+                Task.Run(() => Stop()).Wait();
+            }
+
+            foreach (var port in _ports.Where(p => p != null))
+            {
+                try
+                {
+                    if (port.IsOpen)
+                    {
+                        port.Close();
+                        Console.WriteLine($"Closed COM port: {port.PortName}");
+                    }
+                    port.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error closing COM port {port.PortName}: {ex.Message}");
+                }
+            }
+
+            Task.Delay(1000).Wait();
+
+            InitializePorts();
+
+            if (_isInitialized)
+            {
+                Start();
+                Console.WriteLine("Pressure pad ports reset and restarted successfully.");
+            }
+            else
+            {
+                Console.WriteLine("Failed to reset pressure pad ports. Continuing in camera-only mode.");
+            }
+        }
+
         //private void RequestTimer_Tick(object? sender, EventArgs e)
         //{
         //    _requestTasks = _ports.Select(port => Task.Run(() => Request(port, _cts.Token))).ToArray();
         //}
 
-        //private void Request(RJCP.IO.Ports.SerialPortStream port, CancellationToken token)
-        //{
-        //    byte[] request = { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
-        //    if (port.IsOpen)
-        //    {
-        //        lock (port)
-        //        {
-        //            try
-        //            {
-        //                port.Write(request, 0, request.Length);
-        //            }
-        //            catch (Exception ex)
-        //            {
-        //                Console.WriteLine($"Request error on {port.PortName}: {ex.Message}");
-        //            }
-        //        }
-        //    }
-        //}
+        private async Task Request(RJCP.IO.Ports.SerialPortStream port, CancellationToken token)
+        {
+            if (port.IsOpen)
+            {
+                //lock (port)
+                //{
+                    try
+                    {
+                        await port.WriteAsync(REQUEST_PATTERN, 0, REQUEST_SIZE, token);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Request error on {port.PortName}: {ex.Message}");
+                    }
+            //}
+        }
+        }
 
         private void RequestLoop(RJCP.IO.Ports.SerialPortStream port, CancellationToken token)
         {
@@ -174,7 +226,7 @@ namespace MultiWebcamApp
                         }
                     }
                 }
-                Thread.Sleep(33); // 10ms 간격으로 요청 전송
+                Thread.Sleep(10); // 10ms 간격으로 요청 전송
             }
         }
 
@@ -186,6 +238,9 @@ namespace MultiWebcamApp
             byte[][] buffers = activePorts.Select(_ => new byte[PACKET_SIZE]).ToArray();
             ushort[][] quadrantData = activePorts.Select(_ => new ushort[DATA_SIZE / 2]).ToArray();
 
+            _requestTasks = _ports.Select(port => Task.Run(() => Request(port, _cts.Token))).ToArray();
+            await Task.WhenAll(_requestTasks);
+
             while (!token.IsCancellationRequested)
             {
                 var startTime = stopwatch.ElapsedMilliseconds;
@@ -194,72 +249,133 @@ namespace MultiWebcamApp
                 {
                     if (port == null || !port.IsOpen) return; // null 체크 추가
 
-                    int totalBytesRead = 0;
                     byte[] buffer = buffers[index];
-                    Array.Clear(buffer, 0, buffer.Length); // 버퍼 초기화
+                    Array.Clear(buffer, 0, buffer.Length);
+                    int totalBytesRead = 0;
+                    var packetStartTime = DateTime.Now;
 
                     // 헤더 탐지
                     while (!token.IsCancellationRequested)
                     {
-                        if (port.BytesToRead >= HEADER_SIZE)
+                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
                         {
-                            byte[] headerCheck = new byte[HEADER_SIZE];
+                            port.DiscardInBuffer();
+                            _ = Task.Run(() => Request(port, token), token);
+                            return;
+                        }
+
+                        int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE - totalBytesRead);
+                        if (bytesToRead > 0)
+                        {
                             try
                             {
-                                totalBytesRead = await port.ReadAsync(headerCheck, 0, HEADER_SIZE);
-                                if (Enumerable.SequenceEqual(headerCheck, HEADER_PATTERN))
+                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
+                                totalBytesRead += bytesRead;
+
+                                int headerStart = FindHeader(buffer, totalBytesRead);
+                                if (headerStart >= 0)
+                                {
+                                    totalBytesRead = totalBytesRead - headerStart;
+                                    if (headerStart > 0)
+                                        Array.Copy(buffer, headerStart, buffer, 0, totalBytesRead);
                                     break;
-                                Array.Copy(headerCheck, 1, headerCheck, 0, HEADER_SIZE - 1);
-                                totalBytesRead = HEADER_SIZE - 1;
-                                await port.ReadAsync(headerCheck, HEADER_SIZE - 1, 1);
-                                totalBytesRead = headerCheck[0] == HEADER_PATTERN[0] ? totalBytesRead : 0;
+                                }
                             }
                             catch (Exception ex)
                             {
                                 Console.WriteLine($"Header read error on {port.PortName}: {ex.Message}");
+                                port.DiscardInBuffer();
+                                _ = Task.Run(() => Request(port, token), token);
                                 return;
                             }
                         }
                         await Task.Delay(1, token);
                     }
 
-                    Array.Copy(HEADER_PATTERN, buffer, HEADER_SIZE);
-                    totalBytesRead = HEADER_SIZE;
+                    if (totalBytesRead < HEADER_SIZE) return;
 
-                    // 데이터 읽기
+                    // 데이터 길이 읽기
+                    while (totalBytesRead < HEADER_SIZE + 4 && !token.IsCancellationRequested)
+                    {
+                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                        {
+                            port.DiscardInBuffer();
+                            _ = Task.Run(() => Request(port, token), token);
+                            return;
+                        }
+
+                        int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE + 4 - totalBytesRead);
+                        if (bytesToRead > 0)
+                        {
+                            try
+                            {
+                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
+                                totalBytesRead += bytesRead;
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Length read error on {port.PortName}: {ex.Message}");
+                                port.DiscardInBuffer();
+                                _ = Task.Run(() => Request(port, token), token);
+                                return;
+                            }
+                        }
+                        await Task.Delay(1, token);
+                    }
+
+                    string lengthHex = System.Text.Encoding.ASCII.GetString(buffer, HEADER_SIZE, 4);
+                    int dataLength = Convert.ToInt32(lengthHex, 16);
+                    if (dataLength != DATA_SIZE)
+                    {
+                        port.DiscardInBuffer();
+                        _ = Task.Run(() => Request(port, token), token);
+                        return;
+                    }
+
+                    // 데이터와 테일 읽기
                     while (totalBytesRead < PACKET_SIZE && !token.IsCancellationRequested)
                     {
+                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                        {
+                            port.DiscardInBuffer();
+                            _ = Task.Run(() => Request(port, token), token);
+                            return;
+                        }
+
                         int bytesToRead = Math.Min(port.BytesToRead, PACKET_SIZE - totalBytesRead);
                         if (bytesToRead > 0)
                         {
                             try
                             {
-                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead);
+                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
                                 totalBytesRead += bytesRead;
                             }
                             catch (Exception ex)
                             {
                                 Console.WriteLine($"Data read error on {port.PortName}: {ex.Message}");
+                                port.DiscardInBuffer();
+                                _ = Task.Run(() => Request(port, token), token);
                                 return;
                             }
                         }
-                        else
-                        {
-                            await Task.Delay(1, token);
-                        }
+                        await Task.Delay(1, token);
                     }
 
-                    if (totalBytesRead == PACKET_SIZE)
+                    if (totalBytesRead == PACKET_SIZE && CheckTail(buffer, PACKET_SIZE - 3))
                     {
+                        port.DiscardInBuffer();
+                        _ = Task.Run(() => Request(port, token), token);
+
                         for (int i = 0; i < DATA_SIZE / 2; i++)
                         {
                             quadrantData[index][i] = BitConverter.ToUInt16(buffer, DATA_OFFSET + i * 2);
                         }
 
                         // Calibration 적용 (선택적)
-                        // quadrantData[index] = _calibration.Work(quadrantData[index], index);
+                         quadrantData[index] = _calibration.Work(quadrantData[index], index);
 
-                        Point startPos = StartPositions[index];
+                        int portIndex = Array.IndexOf(_portNames, port.PortName);
+                        Point startPos = StartPositions[portIndex];
                         lock (_combinedData)
                         {
                             for (int col = 0; col < 48; col++)
@@ -267,7 +383,31 @@ namespace MultiWebcamApp
                                 for (int row = 0; row < 48; row++)
                                 {
                                     int srcIndex = col * 48 + row;
-                                    int destIndex = ((int)startPos.Y + row) * 96 + ((int)startPos.X + (47 - col)); // 좌우 반전
+                                    int destRow, destCol;
+
+                                    // 사분면별 매핑 조정
+                                    switch (portIndex)
+                                    {
+                                        case 0: // 좌측 상단: Y축 대칭
+                                            destRow = (int)startPos.Y + (47 - row);
+                                            destCol = (int)startPos.X + (47 - col);
+                                            break;
+                                        case 1: // 좌측 하단: Y축 대칭
+                                            destRow = (int)startPos.Y + (47 - row);
+                                            destCol = (int)startPos.X + col;
+                                            break;
+                                        case 2: // 우측 상단: X축 대칭
+                                            destRow = (int)startPos.Y + row;
+                                            destCol = (int)startPos.X + (47 - col);
+                                            break;
+                                        case 3: // 우측 하단: 정상
+                                            destRow = (int)startPos.Y + row;
+                                            destCol = (int)startPos.X + col;
+                                            break;
+                                        default:
+                                            return;
+                                    }
+                                    int destIndex = destRow * 96 + destCol;
                                     _combinedData[destIndex] = quadrantData[index][srcIndex];
                                 }
                             }
@@ -291,10 +431,37 @@ namespace MultiWebcamApp
                     _dataQueue.TryDequeue(out _);
 
                 var elapsed = stopwatch.ElapsedMilliseconds - startTime;
-                Console.WriteLine($"Capture time: {elapsed}ms");
+                //Console.WriteLine($"Capture time: {elapsed}ms");
                 var delay = 33 - elapsed;
                 if (delay > 0) Thread.Sleep((int)delay);
             }
+        }
+
+        private int FindHeader(byte[] buffer, int length)
+        {
+            for (int i = 0; i <= length - HEADER_PATTERN.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < HEADER_PATTERN.Length; j++)
+                {
+                    if (buffer[i + j] != HEADER_PATTERN[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+            return -1;
+        }
+
+        private bool CheckTail(byte[] buffer, int startIndex)
+        {
+            for (int i = 0; i < TAIL_PATTERN.Length; i++)
+            {
+                if (buffer[startIndex + i] != TAIL_PATTERN[i]) return false;
+            }
+            return true;
         }
 
         // 프로그램 종료 시 리소스 정리

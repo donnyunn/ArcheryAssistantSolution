@@ -54,10 +54,19 @@ namespace PressureMapViewer
         private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private int _chartUpdateCounter = 0;
         private const int CHART_UPDATE_FREQUENCY = 3; // 3프레임마다 업데이트 (~100ms)
+        // 가로선 추가
+        private Line _forefootHeelLastValueLine;
+        private Line _leftPressureLastValueLine;
+        private Line _rightPressureLastValueLine;
+        private Line _forefootHeelcenterLine;
+        private Line _leftfootHeelcenterLine;
+        private Line _rightfootHeelcenterLine;
 
         // FPS 모니터링
         private int _frameCount = 0;
         private DateTime _lastFpsCheck = DateTime.Now;
+
+        public event EventHandler ResetPortsRequested;
 
         public MainWindow()
         {
@@ -85,11 +94,12 @@ namespace PressureMapViewer
             Update2D(data);
             UpdateCenterOfPressure(data);
             UpdateBalanceGauges(data);
+            UpdateCharts();
 
             _chartUpdateCounter++;
             if (_chartUpdateCounter >= CHART_UPDATE_FREQUENCY)
             {
-                UpdateCharts();
+                //UpdateCharts();
                 EstimateWeight(data);
                 _chartUpdateCounter = 0;
             }
@@ -163,6 +173,72 @@ namespace PressureMapViewer
             ForefootHeelLine.Points = new PointCollection();
             LeftPressureLine.Points = new PointCollection();
             RightPressureLine.Points = new PointCollection();
+
+            _forefootHeelLastValueLine = new Line
+            {
+                Stroke = Brushes.Gray,
+                StrokeThickness = 1,
+                X1 = 0,
+                X2 = ForefootHeelChart.ActualWidth,
+                Visibility = Visibility.Visible
+            };
+            _leftPressureLastValueLine = new Line
+            {
+                Stroke = Brushes.Gray,
+                StrokeThickness = 1,
+                X1 = 0,
+                X2 = LeftPressureChart.ActualWidth,
+                Visibility = Visibility.Visible
+            };
+            _rightPressureLastValueLine = new Line
+            {
+                Stroke = Brushes.Gray,
+                StrokeThickness = 1,
+                X1 = 0,
+                X2 = RightPressureChart.ActualWidth,
+                Visibility = Visibility.Visible
+            };
+
+            ForefootHeelChart.Children.Add(_forefootHeelLastValueLine);
+            LeftPressureChart.Children.Add(_leftPressureLastValueLine);
+            RightPressureChart.Children.Add(_rightPressureLastValueLine);
+
+            _forefootHeelcenterLine = new Line
+            {
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 2, 4 },
+                X1 = 0,
+                X2 = ForefootHeelChart.ActualWidth,
+                Y1 = 0,
+                Y2 = ForefootHeelChart.ActualHeight / 2,
+                Visibility = Visibility.Visible
+            };
+            _leftfootHeelcenterLine = new Line
+            {
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 2, 4 },
+                X1 = 0,
+                X2 = ForefootHeelChart.ActualWidth,
+                Y1 = 0,
+                Y2 = ForefootHeelChart.ActualHeight / 2,
+                Visibility = Visibility.Visible
+            };
+            _rightfootHeelcenterLine = new Line
+            {
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 2, 4 },
+                X1 = 0,
+                X2 = ForefootHeelChart.ActualWidth,
+                Y1 = 0,
+                Y2 = ForefootHeelChart.ActualHeight / 2,
+                Visibility = Visibility.Visible
+            };
+            ForefootHeelChart.Children.Add(_forefootHeelcenterLine);
+            LeftPressureChart.Children.Add(_leftfootHeelcenterLine);
+            RightPressureChart.Children.Add(_rightfootHeelcenterLine);
 
             SizeChanged += (s, e) => { if (IsLoaded) UpdateChartSizes(); };
             ForefootHeelChart.SizeChanged += (s, e) => UpdateChartSizes();
@@ -359,16 +435,29 @@ namespace PressureMapViewer
             leftPressureData.Enqueue(new Point(width2, leftForefootPercent));
             rightPressureData.Enqueue(new Point(width3, rightForefootPercent));
 
-            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, height1);
-            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine, height2);
-            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, height3);
+            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, _forefootHeelLastValueLine, height1);
+            UpdateChartLine(leftPressureData, LeftPressureChart,  LeftPressureLine, _leftPressureLastValueLine, height2);
+            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, _rightPressureLastValueLine, height3);
+
+            _forefootHeelcenterLine.X1 = 0;
+            _forefootHeelcenterLine.X2 = width1;
+            _forefootHeelcenterLine.Y1 = height1 / 2;
+            _forefootHeelcenterLine.Y2 = height1 / 2;
+            _leftfootHeelcenterLine.X1 = 0;
+            _leftfootHeelcenterLine.X2 = width2;
+            _leftfootHeelcenterLine.Y1 = height2 / 2;
+            _leftfootHeelcenterLine.Y2 = height2 / 2;
+            _rightfootHeelcenterLine.X1 = 0;
+            _rightfootHeelcenterLine.X2 = width3;
+            _rightfootHeelcenterLine.Y1 = height3 / 2;
+            _rightfootHeelcenterLine.Y2 = height3 / 2;
 
             ForefootHeelValueText.Text = $"L: {Math.Round(leftPercent)}% / R: {Math.Round(rightPercent)}%";
             LeftPressureValueText.Text = $"F: {Math.Round(leftForefootPercent)}% / H: {Math.Round(leftHeelPercent)}%";
             RightPressureValueText.Text = $"F: {Math.Round(rightForefootPercent)}% / H: {Math.Round(rightHeelPercent)}%";
         }
 
-        private void UpdateChartLine(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine, double height)
+        private void UpdateChartLine(Queue<Point> dataQueue, Canvas chartCanvas, Polyline chartLine, Line lastValueLine, double height)
         {
             double width = chartCanvas.ActualWidth;
             Point[] points = dataQueue.ToArray();
@@ -381,14 +470,24 @@ namespace PressureMapViewer
                 newPoints.Add(new Point(x, y));
             }
             chartLine.Points = newPoints;
+
+            // 마지막 값의 Y 위치로 가로선 업데이트
+            if (points.Length > 0)
+            {
+                double lastY = height - (points[points.Length - 1].Y * height / 100);
+                lastValueLine.X1 = 0;
+                lastValueLine.X2 = width;
+                lastValueLine.Y1 = lastY;
+                lastValueLine.Y2 = lastY;
+            }
         }
 
         private void UpdateChartSizes()
         {
             if (!IsLoaded || ForefootHeelChart.ActualWidth <= 0 || LeftPressureChart.ActualWidth <= 0 || RightPressureChart.ActualWidth <= 0) return;
-            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, ForefootHeelChart.ActualHeight);
-            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine, LeftPressureChart.ActualHeight);
-            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, RightPressureChart.ActualHeight);
+            UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, _forefootHeelLastValueLine, ForefootHeelChart.ActualHeight);
+            UpdateChartLine(leftPressureData, LeftPressureChart, LeftPressureLine, _leftPressureLastValueLine, LeftPressureChart.ActualHeight);
+            UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, _rightPressureLastValueLine, RightPressureChart.ActualHeight);
         }
 
         private void EstimateWeight(ushort[] data)
@@ -434,6 +533,23 @@ namespace PressureMapViewer
                 points.Add(new Point(point.X * scaleX, point.Y * scaleY));
             }
             copTrajectory.Points = points;
+        }
+
+        private void ResetPortsButton_Click(object sender, EventArgs e)
+        {
+            ResetPortsButton.IsEnabled = false;
+            try
+            {
+                ResetPortsRequested?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error requesting port reset: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                ResetPortsButton.IsEnabled = true;
+            }
         }
 
         protected override void OnClosed(EventArgs e)
