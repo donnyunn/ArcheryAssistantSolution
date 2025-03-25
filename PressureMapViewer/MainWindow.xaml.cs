@@ -53,7 +53,7 @@ namespace PressureMapViewer
         private Queue<Point> leftPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private int _chartUpdateCounter = 0;
-        private const int CHART_UPDATE_FREQUENCY = 3; // 3프레임마다 업데이트 (~100ms)
+        private const int CHART_UPDATE_FREQUENCY = 15;
         // 가로선 추가
         private Line _forefootHeelLastValueLine;
         private Line _leftPressureLastValueLine;

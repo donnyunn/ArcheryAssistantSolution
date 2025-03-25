@@ -156,7 +156,7 @@
                     <StackPanel Grid.Row="1" Grid.Column="1">
                         <Button x:Name="ResetPortsButton" Content="장치 재연결" Width="100" Height="30"
                                 FontSize="14" FontWeight="Bold"
-                                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,10,10"
+                                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,10,10"
                                 Click="ResetPortsButton_Click"/>
                     </StackPanel>
                 </Grid>

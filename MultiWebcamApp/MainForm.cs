@@ -76,7 +76,10 @@ namespace MultiWebcamApp
 
             _pressureDisplay.ResetPortsRequested += PressureDisplay_ResetPortsRequested;
 
-            _recordingManager = new RecordingManager();
+            _recordingManager = new RecordingManager(_pressureDisplay);
+            // 녹화 성능 최적화를 위한 설정
+            _recordingManager.EnableFrameMixing(true);
+            _recordingManager.SetFrameMixingRatio(0.8); // 80% 현재 프레임, 20% 이전 프레임
 
             // 프레임 시간 계산 (밀리초)
             //_frameTimeMs = (int)(1000.0 / TARGET_FPS);
@@ -483,7 +486,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void StartButton_Click(object? sender, EventArgs e)
+        private async void StartButton_Click(object? sender, EventArgs e)
         {
             _isStarted = !_isStarted;
             if (_isStarted)
@@ -492,6 +495,7 @@ namespace MultiWebcamApp
                 _startButton.Text = "대기";
                 _isPaused = false;
                 _delaySlider.Enabled = false;
+                _recordButton.Enabled = false;
                 _buffer.Clear();
 
                 // 녹화 버튼이 체크되어 있으면 녹화 시작
@@ -506,13 +510,14 @@ namespace MultiWebcamApp
                 _startButton.Text = "시작";
                 _isPaused = true;
                 _delaySlider.Enabled = true;
+                _recordButton.Enabled = true;
                 _buffer.Clear();
                 _pressurePadSource.ResetAllPorts();
 
                 // 녹화 중이면 녹화 중지
                 if (_recordingManager != null && _recordingManager.IsRecording)
                 {
-                    _recordingManager.StopRecording();
+                    await _recordingManager.StopRecordingAsync();
                 }
             }
             UpdatePlayPauseButton();
@@ -604,7 +609,7 @@ namespace MultiWebcamApp
                 }
                 else
                 {
-                    _recordingManager.StopRecording();
+                    _recordingManager.StopRecordingAsync().Wait();
                 }
             }
             catch (Exception ex)
