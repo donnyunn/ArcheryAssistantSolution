@@ -514,12 +514,55 @@ namespace PressureMapViewer
 
         private Color GetHeatmapColor(float value)
         {
-            value = Math.Clamp(value, 0, 1);
-            if (value < 0.1f) return Color.FromRgb(0, 0, (byte)(255 * (value / 0.1f)));
-            if (value < 0.2f) return Color.FromRgb(0, (byte)(255 * ((value - 0.1f) / 0.1f)), 255);
-            if (value < 0.4f) return Color.FromRgb((byte)(255 * ((value - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.2f) / 0.2f)));
-            if (value < 0.8f) return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.4f) / 0.4f)), 0);
-            return Color.FromRgb(255, 0, 0);
+            //value = Math.Clamp(value, 0, 1);
+            //if (value < 0.1f) return Color.FromRgb(0, 0, (byte)(255 * (value / 0.1f)));
+            //if (value < 0.2f) return Color.FromRgb(0, (byte)(255 * ((value - 0.1f) / 0.1f)), 255);
+            //if (value < 0.4f) return Color.FromRgb((byte)(255 * ((value - 0.2f) / 0.2f)), 255, (byte)(255 * (1 - (value - 0.2f) / 0.2f)));
+            //if (value < 0.8f) return Color.FromRgb(255, (byte)(255 * (1 - (value - 0.4f) / 0.4f)), 0);
+            //return Color.FromRgb(255, 0, 0);
+
+            value = Math.Clamp(value, 0, 1); // 값이 0~1 사이로 제한됨
+
+            byte r, g, b;
+
+            if (value == 0)
+            {
+                r = 17; g = 0; b = 21;
+            }
+            else if (value <= 0.25f)
+            {
+                // 0 (68, 1, 84) -> 0.25 (72, 40, 120)
+                float t = value / 0.25f;
+                r = (byte)(68 + (72 - 68) * t);
+                g = (byte)(1 + (40 - 1) * t);
+                b = (byte)(84 + (120 - 84) * t);
+            }
+            else if (value <= 0.5f)
+            {
+                // 0.25 (72, 40, 120) -> 0.5 (62, 74, 137)
+                float t = (value - 0.25f) / 0.25f;
+                r = (byte)(72 + (62 - 72) * t);
+                g = (byte)(40 + (74 - 40) * t);
+                b = (byte)(120 + (137 - 120) * t);
+            }
+            else if (value <= 0.75f)
+            {
+                // 0.5 (62, 74, 137) -> 0.75 (49, 104, 142)
+                float t = (value - 0.5f) / 0.25f;
+                r = (byte)(62 + (49 - 62) * t);
+                g = (byte)(74 + (104 - 74) * t);
+                b = (byte)(137 + (142 - 137) * t);
+            }
+            else
+            {
+                // 0.75 (49, 104, 142) -> 1.0 (253, 231, 37)
+                float t = (value - 0.75f) / 0.25f;
+                r = (byte)(49 + (253 - 49) * t);
+                g = (byte)(104 + (231 - 104) * t);
+                b = (byte)(142 + (37 - 142) * t);
+            }
+
+            return Color.FromRgb(r, g, b);
         }
 
         private void UpdateTrajectoryPoints()

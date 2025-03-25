@@ -203,6 +203,11 @@ namespace MultiWebcamApp
                             if (frame != null)
                             {
                                 _buffer.PlayPosition = (_buffer.PlayPosition + 1) % _buffer.Count;
+                                if (_buffer.PlayPosition == (_buffer.Count - 1))
+                                {
+                                    PauseButton_Click(this, null);
+                                }
+
                                 msgLower = statusMessage(_buffer.PlayPosition / FPS);
                                 msgUpper = " ";
                                 await Task.Delay((int)(33.33 * _slowLevel), token);
@@ -527,7 +532,7 @@ namespace MultiWebcamApp
             //_recordingManager.SetKey("r");
         }
 
-        private void PauseButton_Click(Object? sender, EventArgs e)
+        private async void PauseButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted)
             {
@@ -541,6 +546,12 @@ namespace MultiWebcamApp
                     _mode = OperationMode.Replay;
                 }
                 UpdatePlayPauseButton();
+
+                // 녹화 중이면 녹화 중지
+                if (_recordingManager != null && _recordingManager.IsRecording)
+                {
+                    await _recordingManager.StopRecordingAsync();
+                }
                 //_webcamFormHead.SetKey("p");
                 //_webcamFormBody.SetKey("p");
                 //_footpadForm.SetKey("p");
@@ -548,7 +559,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void BackwardButton_Click(Object? sender, EventArgs e)
+        private async void BackwardButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted && _mode != OperationMode.Idle)
             {
@@ -556,6 +567,12 @@ namespace MultiWebcamApp
                 _isPaused = true;
                 _buffer.PlayPosition = Math.Max(0, _buffer.PlayPosition - 15);
                 UpdatePlayPauseButton();
+
+                // 녹화 중이면 녹화 중지
+                if (_recordingManager != null && _recordingManager.IsRecording)
+                {
+                    await _recordingManager.StopRecordingAsync();
+                }
                 //_webcamFormHead.SetKey("a");
                 //_webcamFormBody.SetKey("a");
                 //_footpadForm.SetKey("a");
@@ -563,7 +580,7 @@ namespace MultiWebcamApp
             }
         }
 
-        private void ForwardButton_Click(Object? sender, EventArgs e)
+        private async void ForwardButton_Click(Object? sender, EventArgs e)
         {
             if (_isStarted && _mode != OperationMode.Idle)
             {
@@ -571,6 +588,12 @@ namespace MultiWebcamApp
                 _isPaused = true;
                 _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 15);
                 UpdatePlayPauseButton();
+
+                // 녹화 중이면 녹화 중지
+                if (_recordingManager != null && _recordingManager.IsRecording)
+                {
+                    await _recordingManager.StopRecordingAsync();
+                }
                 //_webcamFormHead.SetKey("d");
                 //_webcamFormBody.SetKey("d");
                 //_footpadForm.SetKey("d");

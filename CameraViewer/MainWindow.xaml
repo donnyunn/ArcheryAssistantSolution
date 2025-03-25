@@ -8,6 +8,12 @@
                Stretch="Uniform"
                RenderOptions.BitmapScalingMode="HighQuality"/>
 
+        <!-- 드로잉 레이어 -->
+        <Canvas x:Name="DrawingCanvas" 
+                IsHitTestVisible="True"
+                Background="Transparent"/>
+
+        <!-- 상태 텍스트 -->
         <TextBlock x:Name="StatusText"
                    VerticalAlignment="Bottom"
                    HorizontalAlignment="Left"
@@ -23,5 +29,32 @@
                    FontSize="24"
                    FontFamily="Arial"
                    Foreground="Red"/>
+
+        <!-- 지우기 버튼 -->
+        <Button x:Name="ClearButton"
+                Content="지우기"
+                VerticalAlignment="Bottom"
+                HorizontalAlignment="Right"
+                Margin="10"
+                Padding="10,5"
+                Background="#80000000"
+                Foreground="White"
+                BorderBrush="#40FFFFFF"
+                FontSize="24"
+                Opacity="0.7"
+                Click="ClearButton_Click">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="5">
+                        <ContentPresenter HorizontalAlignment="Center" 
+                                          VerticalAlignment="Center" 
+                                          Margin="{TemplateBinding Padding}"/>
+                    </Border>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
     </Grid>
 </Window>
