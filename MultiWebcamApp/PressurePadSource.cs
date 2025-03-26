@@ -230,6 +230,22 @@ namespace MultiWebcamApp
             }
         }
 
+        // CaptureLoop 클래스에 추가할 멤버 변수 및 속성
+        private volatile bool _needsReset = false;
+
+        // 외부에서 재설정 필요 여부를 확인할 수 있는 속성
+        public bool NeedsReset
+        {
+            get { return _needsReset; }
+            private set { _needsReset = value; }
+        }
+
+        // 재설정 플래그를 리셋하는 메서드
+        public void ResetFlag()
+        {
+            _needsReset = false;
+        }
+
         private async Task CaptureLoop(RJCP.IO.Ports.SerialPortStream[] activePorts, CancellationToken token)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
@@ -238,202 +254,294 @@ namespace MultiWebcamApp
             byte[][] buffers = activePorts.Select(_ => new byte[PACKET_SIZE]).ToArray();
             ushort[][] quadrantData = activePorts.Select(_ => new ushort[DATA_SIZE / 2]).ToArray();
 
-            _requestTasks = _ports.Select(port => Task.Run(() => Request(port, _cts.Token))).ToArray();
-            await Task.WhenAll(_requestTasks);
+            // 큰 변경사항 1: 널 체크 추가 및 예외처리 강화
+            _requestTasks = _ports.Select(port =>
+                port != null && port.IsOpen ?
+                    Task.Run(() => Request(port, token), token) :
+                    Task.CompletedTask).ToArray();
+
+            try
+            {
+                await Task.WhenAll(_requestTasks.Where(t => t != Task.CompletedTask));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"초기 Request 작업 중 오류: {ex.Message}");
+            }
+
+            // 큰 변경사항 2: 안정성 모니터링 추가
+            int consecutiveErrors = 0;
+            DateTime lastSuccessTime = DateTime.Now;
 
             while (!token.IsCancellationRequested)
             {
                 var startTime = stopwatch.ElapsedMilliseconds;
-
-                var tasks = activePorts.Select((port, index) => Task.Run(async () =>
-                {
-                    if (port == null || !port.IsOpen) return; // null 체크 추가
-
-                    byte[] buffer = buffers[index];
-                    Array.Clear(buffer, 0, buffer.Length);
-                    int totalBytesRead = 0;
-                    var packetStartTime = DateTime.Now;
-
-                    // 헤더 탐지
-                    while (!token.IsCancellationRequested)
-                    {
-                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                        {
-                            port.DiscardInBuffer();
-                            _ = Task.Run(() => Request(port, token), token);
-                            return;
-                        }
-
-                        int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE - totalBytesRead);
-                        if (bytesToRead > 0)
-                        {
-                            try
-                            {
-                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                totalBytesRead += bytesRead;
-
-                                int headerStart = FindHeader(buffer, totalBytesRead);
-                                if (headerStart >= 0)
-                                {
-                                    totalBytesRead = totalBytesRead - headerStart;
-                                    if (headerStart > 0)
-                                        Array.Copy(buffer, headerStart, buffer, 0, totalBytesRead);
-                                    break;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Header read error on {port.PortName}: {ex.Message}");
-                                port.DiscardInBuffer();
-                                _ = Task.Run(() => Request(port, token), token);
-                                return;
-                            }
-                        }
-                        await Task.Delay(1, token);
-                    }
-
-                    if (totalBytesRead < HEADER_SIZE) return;
-
-                    // 데이터 길이 읽기
-                    while (totalBytesRead < HEADER_SIZE + 4 && !token.IsCancellationRequested)
-                    {
-                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                        {
-                            port.DiscardInBuffer();
-                            _ = Task.Run(() => Request(port, token), token);
-                            return;
-                        }
-
-                        int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE + 4 - totalBytesRead);
-                        if (bytesToRead > 0)
-                        {
-                            try
-                            {
-                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                totalBytesRead += bytesRead;
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Length read error on {port.PortName}: {ex.Message}");
-                                port.DiscardInBuffer();
-                                _ = Task.Run(() => Request(port, token), token);
-                                return;
-                            }
-                        }
-                        await Task.Delay(1, token);
-                    }
-
-                    string lengthHex = System.Text.Encoding.ASCII.GetString(buffer, HEADER_SIZE, 4);
-                    int dataLength = Convert.ToInt32(lengthHex, 16);
-                    if (dataLength != DATA_SIZE)
-                    {
-                        port.DiscardInBuffer();
-                        _ = Task.Run(() => Request(port, token), token);
-                        return;
-                    }
-
-                    // 데이터와 테일 읽기
-                    while (totalBytesRead < PACKET_SIZE && !token.IsCancellationRequested)
-                    {
-                        if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                        {
-                            port.DiscardInBuffer();
-                            _ = Task.Run(() => Request(port, token), token);
-                            return;
-                        }
-
-                        int bytesToRead = Math.Min(port.BytesToRead, PACKET_SIZE - totalBytesRead);
-                        if (bytesToRead > 0)
-                        {
-                            try
-                            {
-                                int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                totalBytesRead += bytesRead;
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Data read error on {port.PortName}: {ex.Message}");
-                                port.DiscardInBuffer();
-                                _ = Task.Run(() => Request(port, token), token);
-                                return;
-                            }
-                        }
-                        await Task.Delay(1, token);
-                    }
-
-                    if (totalBytesRead == PACKET_SIZE && CheckTail(buffer, PACKET_SIZE - 3))
-                    {
-                        port.DiscardInBuffer();
-                        _ = Task.Run(() => Request(port, token), token);
-
-                        for (int i = 0; i < DATA_SIZE / 2; i++)
-                        {
-                            quadrantData[index][i] = BitConverter.ToUInt16(buffer, DATA_OFFSET + i * 2);
-                        }
-
-                        // Calibration 적용 (선택적)
-                         quadrantData[index] = _calibration.Work(quadrantData[index], index);
-
-                        int portIndex = Array.IndexOf(_portNames, port.PortName);
-                        Point startPos = StartPositions[portIndex];
-                        lock (_combinedData)
-                        {
-                            for (int col = 0; col < 48; col++)
-                            {
-                                for (int row = 0; row < 48; row++)
-                                {
-                                    int srcIndex = col * 48 + row;
-                                    int destRow, destCol;
-
-                                    // 사분면별 매핑 조정
-                                    switch (portIndex)
-                                    {
-                                        case 0: // 좌측 상단: Y축 대칭
-                                            destRow = (int)startPos.Y + (47 - row);
-                                            destCol = (int)startPos.X + (47 - col);
-                                            break;
-                                        case 1: // 좌측 하단: Y축 대칭
-                                            destRow = (int)startPos.Y + (47 - row);
-                                            destCol = (int)startPos.X + col;
-                                            break;
-                                        case 2: // 우측 상단: X축 대칭
-                                            destRow = (int)startPos.Y + row;
-                                            destCol = (int)startPos.X + (47 - col);
-                                            break;
-                                        case 3: // 우측 하단: 정상
-                                            destRow = (int)startPos.Y + row;
-                                            destCol = (int)startPos.X + col;
-                                            break;
-                                        default:
-                                            return;
-                                    }
-                                    int destIndex = destRow * 96 + destCol;
-                                    _combinedData[destIndex] = quadrantData[index][srcIndex];
-                                }
-                            }
-                        }
-                    }
-                }, token)).ToArray();
+                bool frameSuccessful = true;
 
                 try
                 {
-                    await Task.WhenAll(tasks);
+                    var tasks = activePorts.Select((port, index) => Task.Run(async () =>
+                    {
+                        if (port == null || !port.IsOpen) return false; // null 체크 추가
+
+                        byte[] buffer = buffers[index];
+                        Array.Clear(buffer, 0, buffer.Length);
+                        int totalBytesRead = 0;
+                        var packetStartTime = DateTime.Now;
+
+                        // 헤더 탐지
+                        while (!token.IsCancellationRequested)
+                        {
+                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                            {
+                                port.DiscardInBuffer();
+                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                return false;
+                            }
+
+                            int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE - totalBytesRead);
+                            if (bytesToRead > 0)
+                            {
+                                try
+                                {
+                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
+                                    totalBytesRead += bytesRead;
+
+                                    int headerStart = FindHeader(buffer, totalBytesRead);
+                                    if (headerStart >= 0)
+                                    {
+                                        totalBytesRead = totalBytesRead - headerStart;
+                                        if (headerStart > 0)
+                                            Array.Copy(buffer, headerStart, buffer, 0, totalBytesRead);
+                                        break;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Header read error on {port.PortName}: {ex.Message}");
+                                    port.DiscardInBuffer();
+                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                    return false;
+                                }
+                            }
+                            await Task.Delay(1, token);
+                        }
+
+                        if (totalBytesRead < HEADER_SIZE) return false;
+
+                        // 데이터 길이 읽기
+                        while (totalBytesRead < HEADER_SIZE + 4 && !token.IsCancellationRequested)
+                        {
+                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                            {
+                                port.DiscardInBuffer();
+                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                return false;
+                            }
+
+                            int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE + 4 - totalBytesRead);
+                            if (bytesToRead > 0)
+                            {
+                                try
+                                {
+                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
+                                    totalBytesRead += bytesRead;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Length read error on {port.PortName}: {ex.Message}");
+                                    port.DiscardInBuffer();
+                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                    return false;
+                                }
+                            }
+                            await Task.Delay(1, token);
+                        }
+
+                        try
+                        {
+                            string lengthHex = System.Text.Encoding.ASCII.GetString(buffer, HEADER_SIZE, 4);
+                            int dataLength = Convert.ToInt32(lengthHex, 16);
+                            if (dataLength != DATA_SIZE)
+                            {
+                                port.DiscardInBuffer();
+                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                return false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Length parse error on {port.PortName}: {ex.Message}");
+                            port.DiscardInBuffer();
+                            try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                            return false;
+                        }
+
+                        // 데이터와 테일 읽기
+                        while (totalBytesRead < PACKET_SIZE && !token.IsCancellationRequested)
+                        {
+                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                            {
+                                port.DiscardInBuffer();
+                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                return false;
+                            }
+
+                            int bytesToRead = Math.Min(port.BytesToRead, PACKET_SIZE - totalBytesRead);
+                            if (bytesToRead > 0)
+                            {
+                                try
+                                {
+                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
+                                    totalBytesRead += bytesRead;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Data read error on {port.PortName}: {ex.Message}");
+                                    port.DiscardInBuffer();
+                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
+                                    return false;
+                                }
+                            }
+                            await Task.Delay(1, token);
+                        }
+
+                        if (totalBytesRead == PACKET_SIZE && CheckTail(buffer, PACKET_SIZE - 3))
+                        {
+                            port.DiscardInBuffer();
+                            try { _ = Task.Run(() => Request(port, token), token); } catch { }
+
+                            for (int i = 0; i < DATA_SIZE / 2; i++)
+                            {
+                                quadrantData[index][i] = BitConverter.ToUInt16(buffer, DATA_OFFSET + i * 2);
+                            }
+
+                            // Calibration 적용
+                            quadrantData[index] = _calibration.Work(quadrantData[index], index);
+
+                            int portIndex = Array.IndexOf(_portNames, port.PortName);
+                            if (portIndex < 0 || portIndex >= StartPositions.Length)
+                            {
+                                Console.WriteLine($"Invalid port index for {port.PortName}");
+                                return false;
+                            }
+
+                            Point startPos = StartPositions[portIndex];
+                            lock (_combinedData)
+                            {
+                                for (int col = 0; col < 48; col++)
+                                {
+                                    for (int row = 0; row < 48; row++)
+                                    {
+                                        int srcIndex = col * 48 + row;
+                                        int destRow, destCol;
+
+                                        // 사분면별 매핑 조정
+                                        switch (portIndex)
+                                        {
+                                            case 0: // 좌측 상단: Y축 대칭
+                                                destRow = (int)startPos.Y + (47 - row);
+                                                destCol = (int)startPos.X + (47 - col);
+                                                break;
+                                            case 1: // 좌측 하단: Y축 대칭
+                                                destRow = (int)startPos.Y + (47 - row);
+                                                destCol = (int)startPos.X + col;
+                                                break;
+                                            case 2: // 우측 상단: X축 대칭
+                                                destRow = (int)startPos.Y + row;
+                                                destCol = (int)startPos.X + (47 - col);
+                                                break;
+                                            case 3: // 우측 하단: 정상
+                                                destRow = (int)startPos.Y + row;
+                                                destCol = (int)startPos.X + col;
+                                                break;
+                                            default:
+                                                return false;
+                                        }
+
+                                        int destIndex = destRow * 96 + destCol;
+                                        if (destIndex >= 0 && destIndex < _combinedData.Length)
+                                        {
+                                            _combinedData[destIndex] = quadrantData[index][srcIndex];
+                                        }
+                                    }
+                                }
+                            }
+                            return true;
+                        }
+                        return false;
+                    }, token)).ToArray();
+
+                    try
+                    {
+                        var results = await Task.WhenAll(tasks);
+                        if (results.All(success => success))
+                        {
+                            _dataQueue.Enqueue(((ushort[])_combinedData.Clone(), DateTime.Now.Ticks));
+                            while (_dataQueue.Count > 5)
+                                _dataQueue.TryDequeue(out _);
+
+                            lastSuccessTime = DateTime.Now;
+                            consecutiveErrors = 0;
+                        }
+                        else
+                        {
+                            frameSuccessful = false;
+                            consecutiveErrors++;
+                            // 일부만 로그 출력 (로그 과다 방지)
+                            if (consecutiveErrors % 10 == 1)
+                            {
+                                Console.WriteLine($"일부 포트 데이터 캡처 실패 (연속 오류: {consecutiveErrors})");
+                            }
+                        }
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        Console.WriteLine("Capture tasks canceled.");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        frameSuccessful = false;
+                        consecutiveErrors++;
+                        Console.WriteLine($"Task exception: {ex.Message}");
+                    }
                 }
-                catch (TaskCanceledException)
+                catch (Exception ex)
                 {
-                    // 취소로 인한 예외는 정상 종료로 간주
-                    Console.WriteLine("Capture tasks canceled.");
-                    return;
+                    frameSuccessful = false;
+                    consecutiveErrors++;
+                    Console.WriteLine($"Capture loop error: {ex.Message}");
                 }
 
-                _dataQueue.Enqueue(((ushort[])_combinedData.Clone(), DateTime.Now.Ticks));
-                while (_dataQueue.Count > 5)
-                    _dataQueue.TryDequeue(out _);
+                // 큰 변경사항 3: 자동 복구 메커니즘 추가
+                // 일정 시간 동안 성공적인 프레임이 없으면 루프 종료하고 재시작
+                if (!frameSuccessful && (DateTime.Now - lastSuccessTime).TotalSeconds > 1)
+                {
+                    Console.WriteLine("1초 동안 성공적인 프레임 없음. 캡처 루프 종료하고 재시작...");
+
+                    // 자동 재시작을 위한 이벤트 발생 또는 플래그 설정
+                    // 이 부분은 메인 애플리케이션에서 감지하여 ResetAllPorts를 호출할 수 있도록 함
+                    _needsReset = true;  // 클래스 멤버 변수로 _needsReset 플래그를 추가해야 함
+
+                    // 현재 루프를 깨끗하게 종료
+                    Console.WriteLine("캡처 루프를 종료합니다. 메인 애플리케이션에서 재시작 예정.");
+                    return;  // CaptureLoop 메서드 종료
+                }
 
                 var elapsed = stopwatch.ElapsedMilliseconds - startTime;
-                //Console.WriteLine($"Capture time: {elapsed}ms");
-                var delay = 33 - elapsed;
-                if (delay > 0) Thread.Sleep((int)delay);
+                var delay = 66 - elapsed;
+                if (delay > 0)
+                {
+                    try
+                    {
+                        await Task.Delay((int)delay, token);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        return;
+                    }
+                }
             }
         }
 

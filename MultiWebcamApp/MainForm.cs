@@ -14,6 +14,7 @@ using OpenCvSharp.Extensions;
 using System.Reflection.Metadata;
 using System.Windows.Media.Imaging;
 using System.Windows.Media;
+using System.Timers;
 
 namespace MultiWebcamApp
 {
@@ -47,21 +48,25 @@ namespace MultiWebcamApp
         private PressurePadSource _pressurePadSource;
         private RecordingManager _recordingManager;
 
+        private System.Timers.Timer _healthCheckTimer;
+
         public MainForm()
         {
             InitializeComponent();
             InitializeCustomControls();
+            InitializeHealthCheck();
 
             _buffer = new FrameBuffer(); 
             var webcamSource1 = new WebcamSource(0);
             var webcamSource2 = new WebcamSource(1);
             var pressurePadSource = new PressurePadSource();
             _pressurePadSource = pressurePadSource;
+
             var sources = new List<IFrameSource> { webcamSource1, webcamSource2 };
             // 압력패드 소스 추가 여부 확인
             try
             {
-                pressurePadSource.Start(); // 초기화 테스트
+                //pressurePadSource.Start(); // 초기화 테스트
                 sources.Add(pressurePadSource);
             }
             catch (Exception ex)
@@ -80,14 +85,6 @@ namespace MultiWebcamApp
             // 녹화 성능 최적화를 위한 설정
             _recordingManager.EnableFrameMixing(true);
             _recordingManager.SetFrameMixingRatio(0.8); // 80% 현재 프레임, 20% 이전 프레임
-
-            // 프레임 시간 계산 (밀리초)
-            //_frameTimeMs = (int)(1000.0 / TARGET_FPS);
-
-            // 멀티미디어 타이머 초기화
-            //InitializeMultimediaTimer();
-
-            //_mainStopwatch.Start();
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -138,6 +135,7 @@ namespace MultiWebcamApp
             _bodyDisplay.Show();
             _pressureDisplay.Show();
 
+            _pressurePadSource.Start();
             _syncManager.Start();
             StartRendering();
         }
@@ -272,6 +270,51 @@ namespace MultiWebcamApp
             message += $"x{1.0 / slowLevel,1:F2}";
 
             return message;
+        }
+
+        private void InitializeHealthCheck()
+        {
+            // 1초마다 상태 확인 (필요에 따라 조정)
+            _healthCheckTimer = new System.Timers.Timer(1000);
+            _healthCheckTimer.Elapsed += HealthCheck_Elapsed;
+            _healthCheckTimer.AutoReset = true;
+            _healthCheckTimer.Start();
+        }
+        private void HealthCheck_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            try
+            {
+                // CaptureLoop에서 재설정이 필요하다고 플래그가 설정된 경우
+                if (_pressurePadSource != null && _pressurePadSource.NeedsReset)
+                {
+                    Console.WriteLine("CaptureLoop에서 재설정 요청을 감지했습니다. 모든 포트 재설정 중...");
+
+                    // 타이머 일시 중지
+                    _healthCheckTimer.Stop();
+
+                    // UI가 없는 환경에서는 직접 호출
+                    _pressurePadSource.ResetAllPorts();
+                    _pressurePadSource.ResetFlag(); // 재설정 플래그 초기화
+
+                    // 타이머 재시작
+                    _healthCheckTimer.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"상태 확인 중 오류 발생: {ex.Message}");
+            }
+        }
+
+        // 애플리케이션 종료 시 타이머 정리
+        private void CleanupHealthCheck()
+        {
+            if (_healthCheckTimer != null)
+            {
+                _healthCheckTimer.Stop();
+                _healthCheckTimer.Elapsed -= HealthCheck_Elapsed;
+                _healthCheckTimer.Dispose();
+            }
         }
 
         private void InitializeCustomControls()
@@ -724,6 +767,8 @@ namespace MultiWebcamApp
             {
                 Close();
             }
+
+            CleanupHealthCheck();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

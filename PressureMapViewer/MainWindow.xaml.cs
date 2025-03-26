@@ -81,7 +81,7 @@ namespace PressureMapViewer
         {
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
                 return;
-
+#if (DEBUG)
             _frameCount++;
             TimeSpan elapsed = DateTime.Now - _lastFpsCheck;
             if (elapsed.TotalSeconds >= 1.0)
@@ -90,7 +90,7 @@ namespace PressureMapViewer
                 _frameCount = 0;
                 _lastFpsCheck = DateTime.Now;
             }
-
+#endif
             Update2D(data);
             UpdateCenterOfPressure(data);
             UpdateBalanceGauges(data);
