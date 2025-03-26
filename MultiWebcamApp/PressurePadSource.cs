@@ -489,7 +489,7 @@ namespace MultiWebcamApp
                             frameSuccessful = false;
                             consecutiveErrors++;
                             // 일부만 로그 출력 (로그 과다 방지)
-                            if (consecutiveErrors % 10 == 1)
+                            if (consecutiveErrors % 15 == 1)
                             {
                                 Console.WriteLine($"일부 포트 데이터 캡처 실패 (연속 오류: {consecutiveErrors})");
                             }
@@ -518,7 +518,7 @@ namespace MultiWebcamApp
                 // 일정 시간 동안 성공적인 프레임이 없으면 루프 종료하고 재시작
                 if (!frameSuccessful && (DateTime.Now - lastSuccessTime).TotalSeconds > 1)
                 {
-                    Console.WriteLine("1초 동안 성공적인 프레임 없음. 캡처 루프 종료하고 재시작...");
+                    Console.WriteLine("2초 동안 성공적인 프레임 없음. 캡처 루프 종료하고 재시작...");
 
                     // 자동 재시작을 위한 이벤트 발생 또는 플래그 설정
                     // 이 부분은 메인 애플리케이션에서 감지하여 ResetAllPorts를 호출할 수 있도록 함

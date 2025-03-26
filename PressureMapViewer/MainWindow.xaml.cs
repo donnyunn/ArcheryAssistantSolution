@@ -244,6 +244,16 @@ namespace PressureMapViewer
             ForefootHeelChart.SizeChanged += (s, e) => UpdateChartSizes();
             LeftPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
             RightPressureChart.SizeChanged += (s, e) => UpdateChartSizes();
+
+            double width1 = ForefootHeelChart.ActualWidth;
+            double width2 = LeftPressureChart.ActualWidth;
+            double width3 = RightPressureChart.ActualWidth;
+            for (int i = 0; i < MAX_CHART_POINTS; i++)
+            {
+                forefootHeelData.Enqueue(new Point(width1, leftPercent));
+                leftPressureData.Enqueue(new Point(width2, leftHeelPercent));
+                rightPressureData.Enqueue(new Point(width3, rightHeelPercent));
+            }
         }
 
         private unsafe void Update2D(ushort[] data)
@@ -281,7 +291,7 @@ namespace PressureMapViewer
                 }
             }
 
-            if (totalPressure > 1000)
+            if (totalPressure > 500)
             {
                 centerOfPressure = new Point(weightedX / totalPressure, weightedY / totalPressure);
                 double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
@@ -357,7 +367,7 @@ namespace PressureMapViewer
                 }
             }
 
-            if (totalPressure < 1000 || validCellCount < 10) return;
+            if (totalPressure < 500 || validCellCount < 10) return;
 
             leftPercent = (leftPressure / totalPressure) * 100;
             rightPercent = 100 - leftPercent;
@@ -432,8 +442,8 @@ namespace PressureMapViewer
             if (rightPressureData.Count >= MAX_CHART_POINTS) rightPressureData.Dequeue();
 
             forefootHeelData.Enqueue(new Point(width1, leftPercent));
-            leftPressureData.Enqueue(new Point(width2, leftForefootPercent));
-            rightPressureData.Enqueue(new Point(width3, rightForefootPercent));
+            leftPressureData.Enqueue(new Point(width2, leftHeelPercent));
+            rightPressureData.Enqueue(new Point(width3, rightHeelPercent));
 
             UpdateChartLine(forefootHeelData, ForefootHeelChart, ForefootHeelLine, _forefootHeelLastValueLine, height1);
             UpdateChartLine(leftPressureData, LeftPressureChart,  LeftPressureLine, _leftPressureLastValueLine, height2);
