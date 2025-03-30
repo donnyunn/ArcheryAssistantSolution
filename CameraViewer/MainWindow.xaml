@@ -15,15 +15,17 @@
 
         <!-- 상태 텍스트 -->
         <TextBlock x:Name="StatusText"
-                   VerticalAlignment="Bottom"
+                   VerticalAlignment="Top"
                    HorizontalAlignment="Left"
                    Margin="10"
-                   FontSize="24"
+                   FontSize="96"
                    FontFamily="Arial"
-                   Foreground="White"/>
+                   Foreground="White"
+                   Background="#80000000"
+                   Opacity="0.7"/>
 
         <TextBlock x:Name="StatusText2"
-                   VerticalAlignment="Top"
+                   VerticalAlignment="Bottom"
                    HorizontalAlignment="Left"
                    Margin="10"
                    FontSize="24"

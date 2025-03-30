@@ -267,7 +267,7 @@ namespace MultiWebcamApp
             string message = "";
 
             message += $"{seconds,5:F1}s\t ";
-            message += $"x{1.0 / slowLevel,1:F2}";
+            message += $"x{1.0 / slowLevel,1:F2} ";
 
             return message;
         }
@@ -319,20 +319,20 @@ namespace MultiWebcamApp
 
         private void InitializeCustomControls()
         {
-            int margin = 90;
-            int width = 300;
-            int height = 300;
-            int x = margin, y = margin + 90;
+            int margin = 90/2;
+            int width = 300/2;
+            int height = 300 / 2;
+            int x = margin, y = margin + (90/2);
 
             // MainForm 속성
             this.Location = new System.Drawing.Point(0, 1080);
-            this.Size = new System.Drawing.Size(2560, 720);
+            this.Size = new System.Drawing.Size(1280, 360);
             this.BackColor = System.Drawing.Color.GhostWhite;
 
             // 종료 버튼 속성
             _closeButton.Location = new System.Drawing.Point(x, y);
             _closeButton.Size = new System.Drawing.Size(width, height);
-            _closeButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
+            _closeButton.Font = new Font("맑은 고딕", 50/2, FontStyle.Bold);
             _closeButton.BackColor = System.Drawing.Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
             _closeButton.Text = "종료";
@@ -365,7 +365,7 @@ namespace MultiWebcamApp
             // 시작버튼 속성
             _startButton.Location = new System.Drawing.Point(x, y);
             _startButton.Size = new System.Drawing.Size(width, height);
-            _startButton.Font = new Font("맑은 고딕", 50, FontStyle.Bold);
+            _startButton.Font = new Font("맑은 고딕", 50/2, FontStyle.Bold);
             _startButton.BackColor = System.Drawing.Color.LightGray;
             _startButton.TextAlign = ContentAlignment.MiddleCenter;
             _startButton.Text = "시작";
@@ -373,10 +373,10 @@ namespace MultiWebcamApp
 
             x += width + margin;
 
-            margin = 90;
-            width = 200;
-            height = 200;
-            y += 50;
+            margin = 90/2;
+            width = 200/2;
+            height = 200/2;
+            y += 50/2;
 
             // 뒤로가기 버튼
             _backwardButton.Location = new System.Drawing.Point(x, y);
@@ -386,10 +386,10 @@ namespace MultiWebcamApp
             _backwardButton.BackColor = System.Drawing.Color.LightGray;
             _backwardButton.Text = "";
             _backwardButton.IconChar = IconChar.StepBackward;
-            _backwardButton.IconSize = 100;
-            //_backwardButton.Click += new EventHandler(BackwardButton_Click);
-            _backwardButton.MouseDown += new MouseEventHandler(BackwardButton_MouseDown);
-            _backwardButton.MouseUp += new MouseEventHandler(BackwardButton_MouseUp);
+            _backwardButton.IconSize = 100/2;
+            _backwardButton.Click += new EventHandler(BackwardButton_Click);
+            //_backwardButton.MouseDown += new MouseEventHandler(BackwardButton_MouseDown);
+            //_backwardButton.MouseUp += new MouseEventHandler(BackwardButton_MouseUp);
 
             x += width + margin;
 
@@ -401,7 +401,7 @@ namespace MultiWebcamApp
             _pauseButton.BackColor = System.Drawing.Color.LightGray;
             _pauseButton.Text = "";
             _pauseButton.IconChar = IconChar.Play;
-            _pauseButton.IconSize = 100;
+            _pauseButton.IconSize = 100/2;
             _pauseButton.Click += new EventHandler(PauseButton_Click);
 
             x += width + margin;
@@ -414,22 +414,22 @@ namespace MultiWebcamApp
             _forwardButton.BackColor = System.Drawing.Color.LightGray;
             _forwardButton.Text = "";
             _forwardButton.IconChar = IconChar.StepForward;
-            _forwardButton.IconSize = 100;
-            //_forwardButton.Click += new EventHandler(ForwardButton_Click);
-            _forwardButton.MouseDown += new MouseEventHandler(ForwardButton_MouseDown);
-            _forwardButton.MouseUp += new MouseEventHandler(ForwardButton_MouseUp);
+            _forwardButton.IconSize = 100/2;
+            _forwardButton.Click += new EventHandler(ForwardButton_Click);
+            //_forwardButton.MouseDown += new MouseEventHandler(ForwardButton_MouseDown);
+            //_forwardButton.MouseUp += new MouseEventHandler(ForwardButton_MouseUp);
 
-            margin = 100;
+            margin = 100/2;
             x += width + margin;
 
-            width = 300;
-            height = 300;
-            y -= 50;
+            width = 300/2;
+            height = 300/2;
+            y -= 50/2;
 
             // 슬로우모드 버튼
             _slowButton.Location = new System.Drawing.Point(x, y);
             _slowButton.Size = new System.Drawing.Size(width, height);
-            _slowButton.Font = new Font("Calibri", 50, FontStyle.Bold);
+            _slowButton.Font = new Font("Calibri", 50/2, FontStyle.Bold);
             _slowButton.BackColor = System.Drawing.Color.LightGray;
             _slowButton.TextAlign= ContentAlignment.MiddleCenter;
             _slowButton.Text = "Slow";
@@ -438,15 +438,15 @@ namespace MultiWebcamApp
             // 스왑 버튼
             //x = margin + width + margin;
             y = y + height + margin;
-            width = 120;
-            height = 30;
+            width = 120/2;
+            height = 30/2;
             _recordButton.Location = new System.Drawing.Point(x, y);
             _recordButton.Size = new System.Drawing.Size(width, height);
             _recordButton.OnColor = System.Drawing.Color.Red;
             _recordButton.OffColor = System.Drawing.Color.DarkGray;
             _recordButton.OnText = "녹화 On";
             _recordButton.OffText = "녹화 Off";
-            _recordButton.TextFont = new Font("맑은 고딕", 24, FontStyle.Bold);
+            _recordButton.TextFont = new Font("맑은 고딕", 24/2, FontStyle.Bold);
             _recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
             //_recordButton.Enabled = false;
 
@@ -606,9 +606,9 @@ namespace MultiWebcamApp
         {
             if (_isStarted && _mode != OperationMode.Idle)
             {
-                _mode = OperationMode.Stop;
                 _isPaused = true;
                 _buffer.PlayPosition = Math.Max(0, _buffer.PlayPosition - 15);
+                _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
 
                 // 녹화 중이면 녹화 중지
@@ -627,9 +627,9 @@ namespace MultiWebcamApp
         {
             if (_isStarted && _mode != OperationMode.Idle)
             {
-                _mode = OperationMode.Stop;
                 _isPaused = true;
                 _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 15);
+                _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
 
                 // 녹화 중이면 녹화 중지
