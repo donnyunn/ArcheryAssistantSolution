@@ -18,6 +18,7 @@ namespace MultiWebcamApp
         private readonly ConcurrentQueue<(Mat mat, long Timestamp)> _frameQueue;
         private CancellationTokenSource _cts;
         private Task _captureTask;
+        private Mat _Lastmat = new Mat();
 
         private bool _isStopped;
 
@@ -33,13 +34,17 @@ namespace MultiWebcamApp
             FrameData frameData = new FrameData();
             if (_frameQueue.TryDequeue(out var frame))
             {
+                _Lastmat = frame.mat.Clone();
+            }
+            if (!_Lastmat.Empty())
+            {
                 switch (_cameraIndex)
                 {
                     case 0:
-                        frameData.WebcamHead = frame.mat.Clone();
+                        frameData.WebcamHead = _Lastmat;
                         break;
                     case 1:
-                        frameData.WebcamBody = frame.mat.Clone();
+                        frameData.WebcamBody = _Lastmat;
                         break;
                 }
             }
@@ -53,11 +58,12 @@ namespace MultiWebcamApp
             //_capture = new VideoCapture(_cameraIndex, VideoCaptureAPIs.DSHOW);
             _capture = new VideoCapture();
             _capture.Open(_cameraIndex, VideoCaptureAPIs.MSMF);
+            System.Threading.Thread.Sleep(500);
 
             _capture.Set(VideoCaptureProperties.FrameWidth, 1920);
             _capture.Set(VideoCaptureProperties.FrameHeight, 1080);
             _capture.Set(VideoCaptureProperties.Fps, 60);
-            _capture.Set(VideoCaptureProperties.BufferSize, 1);
+            _capture.Set(VideoCaptureProperties.BufferSize, 5);
 
             // MJPEG 포맷 설정
             int fourcc = VideoWriter.FourCC('M', 'J', 'P', 'G');

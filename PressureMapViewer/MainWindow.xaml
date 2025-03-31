@@ -10,14 +10,14 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- 왼쪽: 2D 히트맵 및 무게중심 게이지 -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="960"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -25,7 +25,7 @@
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="960"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
@@ -46,7 +46,19 @@
                                RenderOptions.BitmapScalingMode="NearestNeighbor"
                                Stretch="Uniform"
                                HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
+                               VerticalAlignment="Center"
+                               Width="960"
+                               Height="960"/>
+                        <Path Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
+                            <Path.Data>
+                                <LineGeometry StartPoint="0,480" EndPoint="960,480"/>
+                            </Path.Data>
+                        </Path>
+                        <Path Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
+                            <Path.Data>
+                                <LineGeometry StartPoint="480,0" EndPoint="480,960"/>
+                            </Path.Data>
+                        </Path>
 
                         <!-- COP 궤적 및 현재 위치를 표시하는 캔버스 -->
                         <!--
@@ -99,70 +111,6 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" Grid.Column="0"
-                    Background="#222222" BorderBrush="#444444" BorderThickness="1"
-                    Margin="10,10,10,10" CornerRadius="5">
-                <Grid Margin="5">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- 제목 -->
-                    <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="측정 정보" 
-                               FontSize="20"
-                               FontWeight="Bold" 
-                               Foreground="White" 
-                               Margin="15,5,5,10"/>
-
-                    <!-- 무게 표시 -->
-                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
-                        <TextBlock Text="추정 무게: " 
-                                   FontSize="20" 
-                                   FontWeight="Bold" 
-                                   Foreground="#CCCCCC"/>
-                        <TextBlock x:Name="WeightValueText" 
-                                   Text="측정 대기 중" 
-                                   FontSize="20" 
-                                   FontWeight="Bold" 
-                                   Foreground="#00AAFF"/>
-                    </StackPanel>
-
-                    <!-- 활성 셀 개수 표시 -->
-                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
-                        <TextBlock Text="측정 압력: " 
-                                   FontSize="20" 
-                                   FontWeight="Bold" 
-                                   Foreground="#CCCCCC"/>
-                        <TextBlock x:Name="ActiveCellsText" 
-                                   Text="-" 
-                                   FontSize="20" 
-                                   Foreground="#AACCFF"/>
-                    </StackPanel>
-                    
-                    <TextBlock Grid.Row="0" Grid.Column="1"
-                               Text="사용자 입력" 
-                               FontSize="20"
-                               FontWeight="Bold" 
-                               Foreground="White" 
-                               Margin="15,5,5,10"/>
-                    <StackPanel Grid.Row="1" Grid.Column="1">
-                        <Button x:Name="ResetPortsButton" Content="장치 재연결" Width="100" Height="30"
-                                FontSize="14" FontWeight="Bold"
-                                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,10,10"
-                                Click="ResetPortsButton_Click"/>
-                    </StackPanel>
-                </Grid>
-                
-            </Border>
-
             <!-- 좌우 균형 표시 -->
             <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" 
                         Margin="0,0,0,50" VerticalAlignment="Bottom">
@@ -181,9 +129,9 @@
         <!-- 오른쪽: 3D Surface Chart 및 시계열 그래프 -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="900"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="540"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
                 <!-- 시계열 그래프를 위한 영역 -->
             </Grid.RowDefinitions>
 
@@ -277,6 +225,98 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <Border Grid.Row="2" Grid.Column="1"
+                    Background="#222222" BorderBrush="#444444" BorderThickness="1"
+                    Margin="10,10,10,10" CornerRadius="5">
+                <Grid Margin="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 제목 -->
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="측정 정보" 
+                               FontSize="20"
+                               FontWeight="Bold" 
+                               Foreground="White" 
+                               Margin="15,5,5,10"/>
+
+                    <!-- 무게 표시 -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text="추정 무게: " 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="WeightValueText" 
+                                   Text="측정 대기 중" 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#00AAFF"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text="측정 압력: " 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="ActiveCellsText" 
+                                   Text="-" 
+                                   FontSize="20" 
+                                   Foreground="#AACCFF"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               Text="장치 정보" 
+                               FontSize="20"
+                               FontWeight="Bold" 
+                               Foreground="White" 
+                               Margin="15,5,5,10"/>
+
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text=":" 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="StatusText" 
+                                   Text="-" 
+                                   FontSize="20"
+                                   Foreground="#AACCFF"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text="FPS: " 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="FPSText" 
+                                   Text=" - Hz" 
+                                   FontSize="20"
+                                   Foreground="#AACCFF"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="0" Grid.Column="2"
+                               Text="사용자 입력" 
+                               FontSize="20"
+                               FontWeight="Bold" 
+                               Foreground="White" 
+                               Margin="15,5,5,10"/>
+                    <StackPanel Grid.Row="1" Grid.Column="2">
+                        <Button x:Name="ResetPortsButton" Content="장치 재연결" Width="100" Height="30"
+                                FontSize="14" FontWeight="Bold"
+                                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,10,10"
+                                Click="ResetPortsButton_Click"/>
+                    </StackPanel>
+                </Grid>
+
+            </Border>
         </Grid>
     </Grid>
 </Window>

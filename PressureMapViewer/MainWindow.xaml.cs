@@ -27,7 +27,7 @@ namespace PressureMapViewer
     public partial class MainWindow : Window
     {
         private const int SENSOR_SIZE = 96;
-        private const int FPS = 30;
+        private const int FPS = 60;
 
         // 2D 렌더링 관련
         private WriteableBitmap heatmapBitmap;
@@ -53,7 +53,9 @@ namespace PressureMapViewer
         private Queue<Point> leftPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private Queue<Point> rightPressureData = new Queue<Point>(MAX_CHART_POINTS);
         private int _chartUpdateCounter = 0;
-        private const int CHART_UPDATE_FREQUENCY = 15;
+        private const int CHART_UPDATE_FREQUENCY = 4;
+        private int _weightUpdateCounter = 0;
+        private const int WEIGHT_UPDATE_FREQUENCY = 30;
         // 가로선 추가
         private Line _forefootHeelLastValueLine;
         private Line _leftPressureLastValueLine;
@@ -77,32 +79,40 @@ namespace PressureMapViewer
             InitializeCharts();
         }
         
-        public void UpdatePressureData(ushort[] data)
+        public void UpdatePressureData(ushort[] data, string statusText = "")
         {
             if (data == null || data.Length != SENSOR_SIZE * SENSOR_SIZE)
                 return;
-#if (DEBUG)
+
             _frameCount++;
             TimeSpan elapsed = DateTime.Now - _lastFpsCheck;
             if (elapsed.TotalSeconds >= 1.0)
             {
+#if (DEBUG)
                 Console.WriteLine($"Footpad FPS: {_frameCount}");
+#endif
+                FPSText.Text = $" {_frameCount,2}Hz ";
                 _frameCount = 0;
                 _lastFpsCheck = DateTime.Now;
             }
-#endif
             Update2D(data);
             UpdateCenterOfPressure(data);
             UpdateBalanceGauges(data);
-            UpdateCharts();
 
             _chartUpdateCounter++;
             if (_chartUpdateCounter >= CHART_UPDATE_FREQUENCY)
             {
-                //UpdateCharts();
-                EstimateWeight(data);
+                UpdateCharts();
                 _chartUpdateCounter = 0;
             }
+            _weightUpdateCounter++;
+            if (_weightUpdateCounter >= WEIGHT_UPDATE_FREQUENCY)
+            {
+                EstimateWeight(data);
+                _weightUpdateCounter = 0;
+            }
+
+            StatusText.Text = statusText;
         }
 
         private void InitializeRendering()

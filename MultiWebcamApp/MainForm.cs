@@ -29,7 +29,7 @@ namespace MultiWebcamApp
         private readonly CameraViewer.MainWindow _headDisplay, _bodyDisplay;
         private readonly PressureMapViewer.MainWindow _pressureDisplay;
 
-        private const double FPS = 30.0;
+        private const double FPS = 60.0;
         private int _slowLevel = 1;
 
         private int _delaySeconds = 0;
@@ -185,7 +185,7 @@ namespace MultiWebcamApp
                             {
                                 playPosition = _buffer.Count - delayFrames - 1;
                                 msgLower = statusMessage(playPosition / FPS);
-                                msgUpper = "▶";
+                                msgUpper = "●";
                             }
 
                             frame = _buffer.GetFrame(playPosition);
@@ -206,9 +206,9 @@ namespace MultiWebcamApp
                                     PauseButton_Click(this, null);
                                 }
 
-                                msgLower = statusMessage(_buffer.PlayPosition / FPS);
-                                msgUpper = " ";
-                                await Task.Delay((int)(33.33 * _slowLevel), token);
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgUpper = "▶";
+                                await Task.Delay((int)(16.67 * _slowLevel), token);
                                 break;
                             }
                         }
@@ -220,12 +220,12 @@ namespace MultiWebcamApp
                             frame = _buffer.GetFrame(_buffer.PlayPosition);
                             if (frame != null)
                             {
-                                msgLower = statusMessage(_buffer.PlayPosition / FPS);
-                                msgUpper = " ";
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgUpper = "■";
                                 break;
                             }
                         }
-                        await Task.Delay(33, token);
+                        await Task.Delay(16, token);
                         break;
                 }
 
@@ -258,7 +258,7 @@ namespace MultiWebcamApp
             _bodyDisplay.UpdateFrame(frame.WebcamBody, msg, msg2);
             if (frame.PressureData != null)
             {
-                _pressureDisplay.UpdatePressureData(frame.PressureData);
+                _pressureDisplay.UpdatePressureData(frame.PressureData, msg);
             }
         }
 
@@ -266,8 +266,8 @@ namespace MultiWebcamApp
         {
             string message = "";
 
-            message += $"{seconds,5:F1}s\t ";
-            message += $"x{1.0 / slowLevel,1:F2} ";
+            message += $" {seconds,5:F1}s ";
+            message += $" x{1.0 / slowLevel,1:F2} ";
 
             return message;
         }
@@ -387,9 +387,9 @@ namespace MultiWebcamApp
             _backwardButton.Text = "";
             _backwardButton.IconChar = IconChar.StepBackward;
             _backwardButton.IconSize = 100/2;
-            _backwardButton.Click += new EventHandler(BackwardButton_Click);
-            //_backwardButton.MouseDown += new MouseEventHandler(BackwardButton_MouseDown);
-            //_backwardButton.MouseUp += new MouseEventHandler(BackwardButton_MouseUp);
+            //_backwardButton.Click += new EventHandler(BackwardButton_Click);
+            _backwardButton.MouseDown += new MouseEventHandler(BackwardButton_MouseDown);
+            _backwardButton.MouseUp += new MouseEventHandler(BackwardButton_MouseUp);
 
             x += width + margin;
 
@@ -415,9 +415,9 @@ namespace MultiWebcamApp
             _forwardButton.Text = "";
             _forwardButton.IconChar = IconChar.StepForward;
             _forwardButton.IconSize = 100/2;
-            _forwardButton.Click += new EventHandler(ForwardButton_Click);
-            //_forwardButton.MouseDown += new MouseEventHandler(ForwardButton_MouseDown);
-            //_forwardButton.MouseUp += new MouseEventHandler(ForwardButton_MouseUp);
+            //_forwardButton.Click += new EventHandler(ForwardButton_Click);
+            _forwardButton.MouseDown += new MouseEventHandler(ForwardButton_MouseDown);
+            _forwardButton.MouseUp += new MouseEventHandler(ForwardButton_MouseUp);
 
             margin = 100/2;
             x += width + margin;
@@ -509,9 +509,6 @@ namespace MultiWebcamApp
         {
             _delaySeconds = ((CustomTrackBar)sender).Value;
             _delayTextbox.Text = _delaySeconds.ToString();
-            //_webcamFormHead.SetDelay(_delaySeconds);
-            //_webcamFormBody.SetDelay(_delaySeconds);
-            //_footpadForm.SetDelay(_delaySeconds);
         }
 
         private void PressureDisplay_ResetPortsRequested(object sender, EventArgs e)
@@ -540,7 +537,7 @@ namespace MultiWebcamApp
             if (_isStarted)
             {
                 _mode = OperationMode.Play;
-                _startButton.Text = "대기";
+                _startButton.Text = "중단";
                 _isPaused = false;
                 _delaySlider.Enabled = false;
                 _recordButton.Enabled = false;
@@ -569,10 +566,6 @@ namespace MultiWebcamApp
                 }
             }
             UpdatePlayPauseButton();
-            //_webcamFormHead.SetKey("r");
-            //_webcamFormBody.SetKey("r");
-            //_footpadForm.SetKey("r");
-            //_recordingManager.SetKey("r");
         }
 
         private async void PauseButton_Click(Object? sender, EventArgs e)
@@ -595,10 +588,6 @@ namespace MultiWebcamApp
                 {
                     await _recordingManager.StopRecordingAsync();
                 }
-                //_webcamFormHead.SetKey("p");
-                //_webcamFormBody.SetKey("p");
-                //_footpadForm.SetKey("p");
-                //_recordingManager.SetKey("p");
             }
         }
 
@@ -607,7 +596,7 @@ namespace MultiWebcamApp
             if (_isStarted && _mode != OperationMode.Idle)
             {
                 _isPaused = true;
-                _buffer.PlayPosition = Math.Max(0, _buffer.PlayPosition - 15);
+                _buffer.PlayPosition = Math.Max(0, _buffer.PlayPosition - 30);
                 _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
 
@@ -616,10 +605,6 @@ namespace MultiWebcamApp
                 {
                     await _recordingManager.StopRecordingAsync();
                 }
-                //_webcamFormHead.SetKey("a");
-                //_webcamFormBody.SetKey("a");
-                //_footpadForm.SetKey("a");
-                //_recordingManager.SetKey("a");
             }
         }
 
@@ -628,7 +613,7 @@ namespace MultiWebcamApp
             if (_isStarted && _mode != OperationMode.Idle)
             {
                 _isPaused = true;
-                _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 15);
+                _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 30);
                 _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
 
@@ -637,10 +622,6 @@ namespace MultiWebcamApp
                 {
                     await _recordingManager.StopRecordingAsync();
                 }
-                //_webcamFormHead.SetKey("d");
-                //_webcamFormBody.SetKey("d");
-                //_footpadForm.SetKey("d");
-                //_recordingManager.SetKey("d");
             }
         }
 
@@ -654,10 +635,6 @@ namespace MultiWebcamApp
 
                 _slowButton.BackColor = _isSlowMode ? System.Drawing.Color.DarkGray : System.Drawing.Color.LightGray;
                 _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
-                //_webcamFormHead.SetKey("s");
-                //_webcamFormBody.SetKey("s");
-                //_footpadForm.SetKey("s");
-                //_recordingManager.SetKey("s");
             }
         }
 

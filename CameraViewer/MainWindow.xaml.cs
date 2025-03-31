@@ -18,13 +18,25 @@ namespace CameraViewer
         // 드로잉 관련 변수
         private System.Windows.Point _startPoint;
         private bool _isDrawing = false;
-        private List<Line> _lines = new List<Line>();
-        private Line _currentLine = null;
+        private List<Shape> _shapes = new List<Shape>();
+        private Shape _currentShape = null;
+
+        // 드로잉 모드
+        public enum DrawingMode
+        {
+            FreeLine,
+            StraightLine,
+            Circle
+        }
+        private DrawingMode _currentDrawingMode = DrawingMode.FreeLine;
 
         // 선 스타일 설정
-        private readonly SolidColorBrush _lineColor = Brushes.Yellow;
+        private SolidColorBrush _currentColor = Brushes.Yellow;
         private readonly double _lineThickness = 3.0;
         private readonly double _lineOpacity = 0.8;
+
+        // 카메라 모드
+        private volatile bool _mirrorMode = false;
 
         public MainWindow()
         {
@@ -45,16 +57,18 @@ namespace CameraViewer
         public void UpdateFrame(Mat frame, string statusText = "", string statusText2 = "")
         {
             if (frame == null || frame.IsDisposed) return;
-#if (DEBUG)
+
             _frameCount++;
             TimeSpan elapsed = DateTime.Now - _lastFpsCheck;
             if (elapsed.TotalSeconds >= 1.0)
             {
+#if (DEBUG)
                 Console.WriteLine($"Camera FPS: {_frameCount}");
+#endif
+                FPSText.Text = $" {_frameCount,2}Hz ";
                 _frameCount = 0;
                 _lastFpsCheck = DateTime.Now;
             }
-#endif
 
             // WriteableBitmap 초기화 (최초 1회)
             if (_writeableBitmap == null || _writeableBitmap.PixelWidth != frame.Width || _writeableBitmap.PixelHeight != frame.Height)
@@ -68,6 +82,11 @@ namespace CameraViewer
                 // 캔버스 크기 조정
                 SizeChanged += MainWindow_SizeChanged;
                 UpdateCanvasSize();
+            }
+
+            if (_mirrorMode)
+            {
+                frame = frame.Flip(FlipMode.Y);
             }
 
             // 프레임 데이터 직접 업데이트
@@ -136,10 +155,10 @@ namespace CameraViewer
 
         private void Canvas_TouchMove(object sender, TouchEventArgs e)
         {
-            if (!_isDrawing || _currentLine == null) return;
+            if (!_isDrawing || _currentShape == null) return;
 
             System.Windows.Point currentPoint = e.GetTouchPoint(DrawingCanvas).Position;
-            UpdateLine(currentPoint);
+            UpdateShape(currentPoint);
             e.Handled = true;
         }
 
@@ -171,10 +190,10 @@ namespace CameraViewer
 
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
-            if (_isDrawing && e.LeftButton == MouseButtonState.Pressed && _currentLine != null)
+            if (_isDrawing && e.LeftButton == MouseButtonState.Pressed && _currentShape != null)
             {
                 System.Windows.Point currentPoint = e.GetPosition(DrawingCanvas);
-                UpdateLine(currentPoint);
+                UpdateShape(currentPoint);
                 e.Handled = true;
             }
         }
@@ -192,68 +211,211 @@ namespace CameraViewer
 
         #endregion
 
-        // 선 그리기 시작
+        #region 드로잉 기능
+
+        // 그리기 시작
         private void StartDrawing(System.Windows.Point startPoint)
         {
             _isDrawing = true;
 
-            // 새 선 생성
-            _currentLine = new Line
+            switch (_currentDrawingMode)
             {
-                X1 = startPoint.X,
-                Y1 = startPoint.Y,
-                X2 = startPoint.X, // 처음에는 시작점과 끝점이 같음
-                Y2 = startPoint.Y,
-                Stroke = _lineColor,
-                StrokeThickness = _lineThickness,
-                Opacity = _lineOpacity,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeStartLineCap = PenLineCap.Round
-            };
+                case DrawingMode.FreeLine:
+                    // 자유 직선 그리기 시작
+                    Line line = new Line
+                    {
+                        X1 = startPoint.X,
+                        Y1 = startPoint.Y,
+                        X2 = startPoint.X,
+                        Y2 = startPoint.Y,
+                        Stroke = _currentColor,
+                        StrokeThickness = _lineThickness,
+                        Opacity = _lineOpacity,
+                        StrokeEndLineCap = PenLineCap.Round,
+                        StrokeStartLineCap = PenLineCap.Round
+                    };
+                    _currentShape = line;
+                    break;
+
+                case DrawingMode.StraightLine:
+                    // 수직/수평 직선 그리기 시작
+                    line = new Line
+                    {
+                        X1 = startPoint.X,
+                        Y1 = startPoint.Y,
+                        X2 = startPoint.X,
+                        Y2 = startPoint.Y,
+                        Stroke = _currentColor,
+                        StrokeThickness = _lineThickness,
+                        Opacity = _lineOpacity,
+                        StrokeEndLineCap = PenLineCap.Round,
+                        StrokeStartLineCap = PenLineCap.Round
+                    };
+                    _currentShape = line;
+                    break;
+
+                case DrawingMode.Circle:
+                    // 원 그리기 시작
+                    Ellipse ellipse = new Ellipse
+                    {
+                        Stroke = _currentColor,
+                        StrokeThickness = _lineThickness,
+                        Opacity = _lineOpacity,
+                        Width = 0,
+                        Height = 0
+                    };
+                    Canvas.SetLeft(ellipse, startPoint.X);
+                    Canvas.SetTop(ellipse, startPoint.Y);
+                    _currentShape = ellipse;
+                    break;
+            }
 
             // 캔버스에 추가
-            DrawingCanvas.Children.Add(_currentLine);
+            DrawingCanvas.Children.Add(_currentShape);
         }
 
-        // 선 업데이트 (이동 중)
-        private void UpdateLine(System.Windows.Point currentPoint)
+        // 도형 업데이트 (이동 중)
+        private void UpdateShape(System.Windows.Point currentPoint)
         {
-            if (_currentLine != null)
+            if (_currentShape == null) return;
+
+            switch (_currentDrawingMode)
             {
-                _currentLine.X2 = currentPoint.X;
-                _currentLine.Y2 = currentPoint.Y;
+                case DrawingMode.FreeLine:
+                    // 자유 직선 업데이트
+                    if (_currentShape is Line line)
+                    {
+                        line.X2 = currentPoint.X;
+                        line.Y2 = currentPoint.Y;
+                    }
+                    break;
+
+                case DrawingMode.StraightLine:
+                    // 수직/수평 직선 업데이트
+                    if (_currentShape is Line straightLine)
+                    {
+                        // 각도 계산
+                        double deltaX = currentPoint.X - _startPoint.X;
+                        double deltaY = currentPoint.Y - _startPoint.Y;
+                        double angle = Math.Atan2(deltaY, deltaX) * 180 / Math.PI;
+
+                        // 각도에 따라 수평/수직 결정
+                        if ((angle >= -45 && angle <= 45) || (angle >= 135 || angle <= -135))
+                        {
+                            // 수평선
+                            straightLine.X1 = _startPoint.X;
+                            straightLine.Y1 = currentPoint.Y;
+                            straightLine.X2 = currentPoint.X;
+                            straightLine.Y2 = currentPoint.Y;
+                        }
+                        else
+                        {
+                            // 수직선
+                            straightLine.X1 = currentPoint.X;
+                            straightLine.Y1 = _startPoint.Y;
+                            straightLine.X2 = currentPoint.X;
+                            straightLine.Y2 = currentPoint.Y;
+                        }
+                    }
+                    break;
+
+                case DrawingMode.Circle:
+                    // 원 업데이트
+                    if (_currentShape is Ellipse ellipse)
+                    {
+                        // 반지름 계산
+                        double radius = Math.Sqrt(
+                            Math.Pow(currentPoint.X - _startPoint.X, 2) +
+                            Math.Pow(currentPoint.Y - _startPoint.Y, 2));
+
+                        // 원 크기 및 위치 업데이트
+                        ellipse.Width = radius * 2;
+                        ellipse.Height = radius * 2;
+                        Canvas.SetLeft(ellipse, _startPoint.X - radius);
+                        Canvas.SetTop(ellipse, _startPoint.Y - radius);
+                    }
+                    break;
             }
         }
 
-        // 선 그리기 완료
+        // 그리기 완료
         private void FinishDrawing(System.Windows.Point endPoint)
         {
-            if (_currentLine != null)
+            if (_currentShape == null) return;
+
+            // 도형 타입에 따라 최종 처리
+            switch (_currentDrawingMode)
             {
-                // 최종 선 위치 설정
-                _currentLine.X2 = endPoint.X;
-                _currentLine.Y2 = endPoint.Y;
+                case DrawingMode.FreeLine:
+                case DrawingMode.StraightLine:
+                    if (_currentShape is Line finishedLine)
+                    {
+                        // 최소 길이 확인 (우발적인 터치 방지)
+                        double length = Math.Sqrt(
+                            Math.Pow(finishedLine.X2 - finishedLine.X1, 2) +
+                            Math.Pow(finishedLine.Y2 - finishedLine.Y1, 2));
 
-                // 최소 길이 확인 (우발적인 터치 방지)
-                double length = Math.Sqrt(
-                    Math.Pow(_currentLine.X2 - _currentLine.X1, 2) +
-                    Math.Pow(_currentLine.Y2 - _currentLine.Y1, 2));
+                        if (length < 5)
+                        {
+                            // 너무 짧은 선은 제거
+                            DrawingCanvas.Children.Remove(_currentShape);
+                        }
+                        else
+                        {
+                            // 도형 목록에 추가
+                            _shapes.Add(_currentShape);
+                        }
+                    }
+                    break;
 
-                if (length < 5)
-                {
-                    // 너무 짧은 선은 제거
-                    DrawingCanvas.Children.Remove(_currentLine);
-                }
-                else
-                {
-                    // 선 목록에 추가
-                    _lines.Add(_currentLine);
-                }
-
-                _currentLine = null;
+                case DrawingMode.Circle:
+                    if (_currentShape is Ellipse finishedEllipse)
+                    {
+                        // 최소 크기 확인
+                        if (finishedEllipse.Width < 10)
+                        {
+                            // 너무 작은 원은 제거
+                            DrawingCanvas.Children.Remove(_currentShape);
+                        }
+                        else
+                        {
+                            // 도형 목록에 추가
+                            _shapes.Add(_currentShape);
+                        }
+                    }
+                    break;
             }
 
+            _currentShape = null;
             _isDrawing = false;
+        }
+
+        #endregion
+
+        #region UI 이벤트 핸들러
+
+        // 드로잉 모드 변경 이벤트
+        private void DrawingModeButton_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender == FreeLineButton)
+                _currentDrawingMode = DrawingMode.FreeLine;
+            else if (sender == StraightLineButton)
+                _currentDrawingMode = DrawingMode.StraightLine;
+            else if (sender == CircleButton)
+                _currentDrawingMode = DrawingMode.Circle;
+        }
+
+        // 색상 변경 이벤트
+        private void ColorButton_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender == YellowColorButton)
+                _currentColor = Brushes.Yellow;
+            else if (sender == RedColorButton)
+                _currentColor = Brushes.Red;
+            else if (sender == BlueColorButton)
+                _currentColor = Brushes.Blue;
+            else if (sender == GreenColorButton)
+                _currentColor = Brushes.Green;
         }
 
         // 지우기 버튼 클릭 이벤트 핸들러
@@ -266,10 +428,24 @@ namespace CameraViewer
         public void ClearDrawing()
         {
             DrawingCanvas.Children.Clear();
-            _lines.Clear();
-            _currentLine = null;
+            _shapes.Clear();
+            _currentShape = null;
             _isDrawing = false;
         }
+
+        private void ViewModeButton_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender == NormalViewButton)
+            {
+                _mirrorMode = false;
+            }
+            else if (sender == MirrorViewButton)
+            {
+                _mirrorMode = true;
+            }
+        }
+
+        #endregion
 
         // 창이 닫힐 때 정리
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)

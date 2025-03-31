@@ -14,6 +14,7 @@ namespace MultiWebcamApp
         private readonly string[] _portNames = { "COM3", "COM4", "COM5", "COM6" };
         private readonly RJCP.IO.Ports.SerialPortStream[] _ports;
         private readonly ConcurrentQueue<(ushort[] Data, long Timestamp)> _dataQueue;
+        private ushort[] _Lastdata = new ushort[9216];
         private CancellationTokenSource _cts;
         private Task _captureTask;
         private Task[] _requestTasks;
@@ -95,9 +96,10 @@ namespace MultiWebcamApp
             if (!_isInitialized) return new FrameData { PressureData = null, Timestamp = DateTime.Now.Ticks };
             if (_dataQueue.TryDequeue(out var data))
             {
+                Array.Copy(data.Data, 0, _Lastdata, 0, 9216);
                 return new FrameData { PressureData = data.Data, Timestamp = data.Timestamp };
             }
-            return new FrameData { Timestamp = DateTime.Now.Ticks };
+            return new FrameData {PressureData = _Lastdata, Timestamp = DateTime.Now.Ticks };
         }
 
         public void Start()
@@ -478,8 +480,8 @@ namespace MultiWebcamApp
                         if (results.All(success => success))
                         {
                             _dataQueue.Enqueue(((ushort[])_combinedData.Clone(), DateTime.Now.Ticks));
-                            while (_dataQueue.Count > 5)
-                                _dataQueue.TryDequeue(out _);
+                            //while (_dataQueue.Count > 5)
+                                //_dataQueue.TryDequeue(out _);
 
                             lastSuccessTime = DateTime.Now;
                             consecutiveErrors = 0;
@@ -530,7 +532,7 @@ namespace MultiWebcamApp
                 }
 
                 var elapsed = stopwatch.ElapsedMilliseconds - startTime;
-                var delay = 66 - elapsed;
+                var delay = 16 - elapsed;
                 if (delay > 0)
                 {
                     try
