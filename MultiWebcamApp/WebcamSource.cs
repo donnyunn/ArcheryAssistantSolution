@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using SharpDX.Direct3D9;
+using SharpDX.Multimedia;
 
 namespace MultiWebcamApp
 {
@@ -48,11 +50,28 @@ namespace MultiWebcamApp
 
         public void Start()
         {
-            _capture = new VideoCapture(_cameraIndex, VideoCaptureAPIs.DSHOW);
-            _capture.Set(VideoCaptureProperties.FrameWidth, 960);
-            _capture.Set(VideoCaptureProperties.FrameHeight, 540);
-            _capture.Set(VideoCaptureProperties.Fps, 30);
+            //_capture = new VideoCapture(_cameraIndex, VideoCaptureAPIs.DSHOW);
+            _capture = new VideoCapture();
+            _capture.Open(_cameraIndex, VideoCaptureAPIs.MSMF);
 
+            _capture.Set(VideoCaptureProperties.FrameWidth, 1920);
+            _capture.Set(VideoCaptureProperties.FrameHeight, 1080);
+            _capture.Set(VideoCaptureProperties.Fps, 60);
+            _capture.Set(VideoCaptureProperties.BufferSize, 1);
+
+            // MJPEG 포맷 설정
+            int fourcc = VideoWriter.FourCC('M', 'J', 'P', 'G');
+            _capture.Set(VideoCaptureProperties.FourCC, fourcc);
+#if (DEBUG)
+            // 설정이 적용되었는지 확인
+            double fps = _capture.Get(VideoCaptureProperties.Fps);
+            fourcc = (int)_capture.Get(VideoCaptureProperties.FourCC);
+            // 설정 확인
+            Console.WriteLine($"포맷: {BitConverter.GetBytes(fourcc).Aggregate("", (c, b) => c + (char)b)}");
+            Console.WriteLine($"FPS: {fps}");
+            Console.WriteLine($"노출: {_capture.Get(VideoCaptureProperties.Exposure)}");
+            Console.WriteLine($"해상도: {_capture.Get(VideoCaptureProperties.FrameWidth)}x{_capture.Get(VideoCaptureProperties.FrameHeight)}");
+#endif
             _captureTask = Task.Run(() => CaptureLoop(_cts.Token));
         }
 
@@ -87,7 +106,7 @@ namespace MultiWebcamApp
                 using var mat = new Mat();
                 if (_capture.Read(mat) && !mat.Empty())
                 {
-                    _frameQueue.Enqueue((mat.Flip(FlipMode.Y).Clone(), DateTime.Now.Ticks));
+                    _frameQueue.Enqueue((mat.Clone(), DateTime.Now.Ticks));
 
                     while (_frameQueue.Count > 5)
                     {

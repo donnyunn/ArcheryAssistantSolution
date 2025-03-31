@@ -9,7 +9,7 @@ namespace MultiWebcamApp
     {
         private readonly IFrameSource[] _sources;
         private readonly ConcurrentQueue<FrameData> _frameQueue;
-        private readonly int _targetFps = 30;
+        private readonly int _targetFps = 60;
         private CancellationTokenSource _cts;
         private Task _syncTask;
         private readonly FrameBuffer _buffer;
