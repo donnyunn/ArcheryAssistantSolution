@@ -1,0 +1,222 @@
+﻿<Window x:Class="UserInterface.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:UserInterface"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="360" Width="1280"
+        Background="#FFF8F8FF" Loaded="Window_Loaded">
+
+    <!-- 커스텀 UI 요소를 위한 리소스 정의 -->
+    <Window.Resources>
+        <!-- 원형 버튼 스타일 -->
+        <Style x:Key="CircleButtonStyle" TargetType="Button">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Fill="{TemplateBinding Background}" Stroke="Gray" StrokeThickness="1"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Background" Value="LightGray"/>
+            <Setter Property="Width" Value="150"/>
+            <Setter Property="Height" Value="150"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="30"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFD0D0D0"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#FFA0A0A0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 재생 컨트롤 버튼 스타일 -->
+        <Style x:Key="MediaButtonStyle" TargetType="Button">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="Gray" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Background" Value="LightGray"/>
+            <Setter Property="Width" Value="100"/>
+            <Setter Property="Height" Value="100"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFD0D0D0"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#FFA0A0A0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 토글 스위치 스타일 -->
+        <Style x:Key="ToggleSwitchStyle" TargetType="Border">
+            <Setter Property="Background" Value="DarkGray"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Width" Value="60"/>
+            <Setter Property="Height" Value="25"/>
+        </Style>
+
+        <!-- 토글 스위치 원형 부분 스타일 -->
+        <Style x:Key="ToggleSwitchKnobStyle" TargetType="Ellipse">
+            <Setter Property="Width" Value="21"/>
+            <Setter Property="Height" Value="21"/>
+            <Setter Property="Fill" Value="White"/>
+        </Style>
+
+
+        <!-- 커스텀 슬라이더 스타일 -->
+        <Style x:Key="LargeThumbSliderStyle" TargetType="Slider">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto" MinHeight="{TemplateBinding MinHeight}"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TickBar x:Name="TopTick" Grid.Row="0" Visibility="Collapsed"
+                                     Fill="{TemplateBinding Foreground}" Placement="Top"
+                                     Height="4" Margin="0,0,0,2"/>
+                            <Border x:Name="TrackBackground" Grid.Row="1" CornerRadius="2" Height="10" 
+                                    Margin="25,0" Background="#FFE0E0E0" BorderBrush="#FFC0C0C0" BorderThickness="1">
+                                <Canvas Margin="-6,-1">
+                                    <Rectangle x:Name="PART_SelectionRange" Height="10" Visibility="Hidden"
+                                             Fill="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" 
+                                             Stroke="{DynamicResource {x:Static SystemColors.ControlDarkDarkBrushKey}}" StrokeThickness="1"/>
+                                </Canvas>
+                            </Border>
+                            <Track x:Name="PART_Track" Grid.Row="1">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge">
+                                        <RepeatButton.Style>
+                                            <Style TargetType="RepeatButton">
+                                                <Setter Property="Opacity" Value="0"/>
+                                            </Style>
+                                        </RepeatButton.Style>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge">
+                                        <RepeatButton.Style>
+                                            <Style TargetType="RepeatButton">
+                                                <Setter Property="Opacity" Value="0"/>
+                                            </Style>
+                                        </RepeatButton.Style>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb" Background="DarkGray" BorderBrush="Gray" BorderThickness="1">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Width="50" Height="50" Fill="#FF4080FF" Stroke="DarkBlue" StrokeThickness="1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                            <TickBar x:Name="BottomTick" Grid.Row="2" Fill="Black"
+                                     Placement="Bottom" Height="10" Margin="0,0,0,0"
+                                     Visibility="Visible"
+                                     TickFrequency="{TemplateBinding TickFrequency}"
+                                     Maximum="{TemplateBinding Maximum}"
+                                     Minimum="{TemplateBinding Minimum}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- 메인 레이아웃 그리드 -->
+    <Grid>
+        <!-- 수평 스택 패널 -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10">
+
+            <!-- 종료 버튼 -->
+            <Button x:Name="btnClose" Content="종료" Style="{StaticResource CircleButtonStyle}" 
+                    Click="btnClose_Click" Margin="10,0"/>
+
+            <!-- 딜레이 컨트롤 그룹 -->
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="20,0">
+                <!-- 숫자 표시 텍스트박스 -->
+                <Border Background="Black" Width="60" Height="80" BorderBrush="Gray" BorderThickness="1">
+                    <TextBlock x:Name="txtDelay" Text="0" Foreground="Red" FontWeight="Bold" 
+                             FontSize="48" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- 슬라이더 -->
+                <Slider x:Name="sliderDelay" Width="180" Height="60" Margin="0,10,0,0"
+                        Minimum="0" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                        ValueChanged="sliderDelay_ValueChanged" 
+                        TickPlacement="BottomRight"
+                        AutoToolTipPlacement="TopLeft" 
+                        AutoToolTipPrecision="0"
+                        Style="{StaticResource LargeThumbSliderStyle}"/>
+            </StackPanel>
+
+            <!-- 시작 버튼 -->
+            <Button x:Name="btnStart" Content="시작" Style="{StaticResource CircleButtonStyle}" 
+                    Click="btnStart_Click" Margin="10,0"/>
+
+            <!-- 컨트롤 버튼 그룹 -->
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
+                <!-- 뒤로가기 버튼 -->
+                <Button x:Name="btnBackward" Style="{StaticResource MediaButtonStyle}" 
+                        Margin="5,0" Click="btnBackward_Click" PreviewMouseDown="btnBackward_PreviewMouseDown" 
+                        PreviewMouseUp="btnBackward_PreviewMouseUp">
+                    <Path Data="M0,25 L20,0 L20,50 Z M20,25 L40,0 L40,50 Z" Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
+                </Button>
+
+                <!-- 재생/일시정지 버튼 -->
+                <Button x:Name="btnPlay" Style="{StaticResource MediaButtonStyle}" 
+                        Margin="5,0" Click="btnPlay_Click">
+                    <Grid>
+                        <Path x:Name="playPauseIcon" Data="M0,0 L20,0 L20,50 L0,50 Z M30,0 L50,0 L50,50 L30,50 Z" 
+                              Fill="Black" Stretch="Uniform" Width="20" Height="20" Visibility="Collapsed"/>
+                        <Path x:Name="playIcon" Data="M0,0 L40,25 L0,50 Z" 
+                              Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
+                    </Grid>
+                </Button>
+
+                <!-- 앞으로가기 버튼 -->
+                <Button x:Name="btnForward" Style="{StaticResource MediaButtonStyle}" 
+                        Margin="5,0" Click="btnForward_Click" PreviewMouseDown="btnForward_PreviewMouseDown" 
+                        PreviewMouseUp="btnForward_PreviewMouseUp">
+                    <Path Data="M0,0 L0,50 L20,25 Z M20,0 L20,50 L40,25 Z" Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
+                </Button>
+            </StackPanel>
+
+            <!-- Slow 버튼 -->
+            <Button x:Name="btnSlow" Content="Slow" Style="{StaticResource CircleButtonStyle}"
+                    Click="btnSlow_Click" Margin="10,0"/>
+
+            <!-- 녹화 토글 스위치 -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Text="녹화" VerticalAlignment="Center" FontSize="12" Margin="10,0,5,0"/>
+                <Grid>
+                    <Border x:Name="recordToggleBorder" Style="{StaticResource ToggleSwitchStyle}" MouseDown="recordToggle_Click">
+                        <TextBlock x:Name="recordToggleText" Text="Off  " Foreground="White" 
+                                     FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" 
+                                     Margin="0,0,5,0"/>
+                    </Border>
+                    <Ellipse x:Name="recordToggleKnob" Style="{StaticResource ToggleSwitchKnobStyle}" 
+                                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                </Grid>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CameraViewer\CameraViewer.csproj" />
     <ProjectReference Include="..\PressureMapViewer\PressureMapViewer.csproj" />
+    <ProjectReference Include="..\UserInterface\UserInterface.csproj" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">

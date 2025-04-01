@@ -15,6 +15,7 @@ using System.Reflection.Metadata;
 using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Timers;
+using System.Windows;
 
 namespace MultiWebcamApp
 {
@@ -26,8 +27,7 @@ namespace MultiWebcamApp
         private CancellationTokenSource _renderingCts;
 
         private OperationMode _mode = OperationMode.Idle;
-        private readonly CameraViewer.MainWindow _headDisplay, _bodyDisplay;
-        private readonly PressureMapViewer.MainWindow _pressureDisplay;
+        private DisplayManager _displayManager;
 
         private const double FPS = 60.0;
         private int _slowLevel = 1;
@@ -53,10 +53,10 @@ namespace MultiWebcamApp
         public MainForm()
         {
             InitializeComponent();
-            InitializeCustomControls();
+            //InitializeCustomControls();
             InitializeHealthCheck();
 
-            _buffer = new FrameBuffer(); 
+            _buffer = new FrameBuffer();
             var webcamSource1 = new WebcamSource(0);
             var webcamSource2 = new WebcamSource(1);
             var pressurePadSource = new PressurePadSource();
@@ -75,13 +75,24 @@ namespace MultiWebcamApp
             }
 
             _syncManager = new SyncManager(sources.ToArray(), _buffer);
-            _headDisplay = new CameraViewer.MainWindow();
-            _bodyDisplay = new CameraViewer.MainWindow();
-            _pressureDisplay = new PressureMapViewer.MainWindow();
 
-            _pressureDisplay.ResetPortsRequested += PressureDisplay_ResetPortsRequested;
+            _displayManager = new DisplayManager();
+            _displayManager.RegisterPressureDisplayResetEvent(PressureDisplay_ResetPortsRequested);
+            _displayManager.RegisterUiDisplayCloseButtonEvent(CloseButton_Click);
+            _displayManager.RegisterUiDisplayDelaySliderEvent(DelaySlider_ValueChanged);
+            _displayManager.RegisterUiDisplayStartButtonEvent(StartButton_Click);
+            _displayManager.RegisterUiDisplayPlayButtonEvent(PauseButton_Click);
+            _displayManager.RegisterUiDisplayBackwardButtonEvent(BackwardButton_Click);
+            _displayManager.RegisterUiDisplayForwardButtonEvent(ForwardButton_Click);
+            _displayManager.RegisterUiDisplaySlowButtonEvent(SlowButton_Click);
+            _displayManager.RegisterUiDisplayRecordToggleEvent(RecordButton_Checked);
 
-            _recordingManager = new RecordingManager(_pressureDisplay);
+            // 녹화 상태 표시 타이머
+            _recordingStatusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _recordingStatusTimer.Tick += (s, e) => _displayManager._uiDisplay.UpdateRecordingStatus();
+            _recordingStatusTimer.Start();
+
+            _recordingManager = new RecordingManager(_displayManager._pressureDisplay);
             // 녹화 성능 최적화를 위한 설정
             _recordingManager.EnableFrameMixing(true);
             _recordingManager.SetFrameMixingRatio(0.8); // 80% 현재 프레임, 20% 이전 프레임
@@ -89,55 +100,14 @@ namespace MultiWebcamApp
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            var screens = Screen.AllScreens;
-
-            if (screens.Length > 3)
-            {
-                var orderedScreens = screens.OrderBy(s => s.Bounds.Y).ToList();
-
-                var monitor1 = orderedScreens[0];
-                _headDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
-                _headDisplay.WindowStyle = System.Windows.WindowStyle.None;
-                _headDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
-                _headDisplay.Left = monitor1.Bounds.Left;
-                _headDisplay.Top = monitor1.Bounds.Top;
-                _headDisplay.Width = monitor1.Bounds.Width;
-                _headDisplay.Height = monitor1.Bounds.Height;
-
-                var monitor2 = orderedScreens[1];
-                this.StartPosition = FormStartPosition.Manual;
-                this.Location = monitor2.WorkingArea.Location;
-                this.Size = monitor2.WorkingArea.Size;
-                this.FormBorderStyle = FormBorderStyle.None;
-                this.WindowState = FormWindowState.Maximized;
-
-                var monitor3 = orderedScreens[2];
-                _bodyDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
-                _bodyDisplay.WindowStyle = System.Windows.WindowStyle.None;
-                _bodyDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
-                _bodyDisplay.Left = monitor3.Bounds.Left;
-                _bodyDisplay.Top = monitor3.Bounds.Top;
-                _bodyDisplay.Width = monitor3.Bounds.Width;
-                _bodyDisplay.Height = monitor3.Bounds.Height;
-
-                var monitor0 = orderedScreens[3];
-                _pressureDisplay.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
-                _pressureDisplay.WindowStyle = System.Windows.WindowStyle.None;
-                _pressureDisplay.ResizeMode = System.Windows.ResizeMode.NoResize;
-                _pressureDisplay.Left = monitor0.Bounds.Left;
-                _pressureDisplay.Top = monitor0.Bounds.Top;
-                _pressureDisplay.Width = monitor0.Bounds.Width;
-                _pressureDisplay.Height = monitor0.Bounds.Height;
-            }
-
-            this.Location = new System.Drawing.Point(0, 720);
-            _headDisplay.Show();
-            _bodyDisplay.Show();
-            _pressureDisplay.Show();
+            _displayManager.ConfigureDisplayPositions();
+            _displayManager.ShowDisplay();
 
             _pressurePadSource.Start();
             _syncManager.Start();
             StartRendering();
+
+            this.WindowState = FormWindowState.Minimized;
         }
 
         private async void StartRendering()
@@ -254,12 +224,7 @@ namespace MultiWebcamApp
 
         private void UpdateUI(FrameData frame, string msg = "", string msg2 = "")
         {
-            _headDisplay.UpdateFrame(frame.WebcamHead, msg, msg2);
-            _bodyDisplay.UpdateFrame(frame.WebcamBody, msg, msg2);
-            if (frame.PressureData != null)
-            {
-                _pressureDisplay.UpdatePressureData(frame.PressureData, msg);
-            }
+            _displayManager.UpdateFrames(frame, msg, msg2);
         }
 
         private string statusMessage(double seconds, int slowLevel = 1)
@@ -280,6 +245,7 @@ namespace MultiWebcamApp
             _healthCheckTimer.AutoReset = true;
             _healthCheckTimer.Start();
         }
+
         private void HealthCheck_Elapsed(object sender, ElapsedEventArgs e)
         {
             try
@@ -332,7 +298,7 @@ namespace MultiWebcamApp
             // 종료 버튼 속성
             _closeButton.Location = new System.Drawing.Point(x, y);
             _closeButton.Size = new System.Drawing.Size(width, height);
-            _closeButton.Font = new Font("맑은 고딕", 50/2, FontStyle.Bold);
+            _closeButton.Font = new System.Drawing.Font("맑은 고딕", 50/2, System.Drawing.FontStyle.Bold);
             _closeButton.BackColor = System.Drawing.Color.LightGray;
             _closeButton.TextAlign = ContentAlignment.MiddleCenter;
             _closeButton.Text = "종료";
@@ -343,8 +309,8 @@ namespace MultiWebcamApp
             // 지연 시간 트랙바 속성
             _delayTextbox.Location = new System.Drawing.Point(x + margin / 2, y + margin / 2);
             _delayTextbox.Size = new System.Drawing.Size(margin * 2, margin);
-            _delayTextbox.Font = new Font("Calibri", margin, FontStyle.Bold);
-            _delayTextbox.TextAlign = HorizontalAlignment.Center;
+            _delayTextbox.Font = new System.Drawing.Font("Calibri", margin, System.Drawing.FontStyle.Bold);
+            _delayTextbox.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             _delayTextbox.BackColor = System.Drawing.Color.Black;
             _delayTextbox.ForeColor = System.Drawing.Color.Red;
             _delayTextbox.BorderStyle = BorderStyle.FixedSingle;
@@ -358,14 +324,14 @@ namespace MultiWebcamApp
             _delaySlider.TickFrequency = 1;
             _delaySlider.LargeChange = 1;
             _delaySlider.TickStyle = TickStyle.BottomRight;
-            _delaySlider.ValueChanged += DelaySlider_ValueChanged;
+            //_delaySlider.ValueChanged += DelaySlider_ValueChanged;
 
             x += width + margin;
 
             // 시작버튼 속성
             _startButton.Location = new System.Drawing.Point(x, y);
             _startButton.Size = new System.Drawing.Size(width, height);
-            _startButton.Font = new Font("맑은 고딕", 50/2, FontStyle.Bold);
+            _startButton.Font = new System.Drawing.Font("맑은 고딕", 50/2, System.Drawing.FontStyle.Bold);
             _startButton.BackColor = System.Drawing.Color.LightGray;
             _startButton.TextAlign = ContentAlignment.MiddleCenter;
             _startButton.Text = "시작";
@@ -429,7 +395,7 @@ namespace MultiWebcamApp
             // 슬로우모드 버튼
             _slowButton.Location = new System.Drawing.Point(x, y);
             _slowButton.Size = new System.Drawing.Size(width, height);
-            _slowButton.Font = new Font("Calibri", 50/2, FontStyle.Bold);
+            _slowButton.Font = new System.Drawing.Font("Calibri", 50/2, System.Drawing.FontStyle.Bold);
             _slowButton.BackColor = System.Drawing.Color.LightGray;
             _slowButton.TextAlign= ContentAlignment.MiddleCenter;
             _slowButton.Text = "Slow";
@@ -446,7 +412,7 @@ namespace MultiWebcamApp
             _recordButton.OffColor = System.Drawing.Color.DarkGray;
             _recordButton.OnText = "녹화 On";
             _recordButton.OffText = "녹화 Off";
-            _recordButton.TextFont = new Font("맑은 고딕", 24/2, FontStyle.Bold);
+            _recordButton.TextFont = new System.Drawing.Font("맑은 고딕", 24/2, System.Drawing.FontStyle.Bold);
             _recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
             //_recordButton.Enabled = false;
 
@@ -505,13 +471,14 @@ namespace MultiWebcamApp
             _forwardTimer.Start();
         }
 
-        private void DelaySlider_ValueChanged(object sender, EventArgs e)
+        private void DelaySlider_ValueChanged(object? sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            _delaySeconds = ((CustomTrackBar)sender).Value;
+            //_delaySeconds = ((CustomTrackBar)sender).Value;
+            _delaySeconds = (int)e.NewValue;
             _delayTextbox.Text = _delaySeconds.ToString();
         }
 
-        private void PressureDisplay_ResetPortsRequested(object sender, EventArgs e)
+        private void PressureDisplay_ResetPortsRequested(object? sender, EventArgs e)
         {
             if (_pressurePadSource != null)
             {
@@ -534,6 +501,9 @@ namespace MultiWebcamApp
         private async void StartButton_Click(object? sender, EventArgs e)
         {
             _isStarted = !_isStarted;
+
+            _displayManager._uiDisplay.SetStartButtonText(_isStarted);
+
             if (_isStarted)
             {
                 _mode = OperationMode.Play;
@@ -565,6 +535,10 @@ namespace MultiWebcamApp
                     await _recordingManager.StopRecordingAsync();
                 }
             }
+
+            _displayManager._uiDisplay.SetDelaySliderEnabled(!_isStarted);
+            _displayManager._uiDisplay.SetRecordToggleEnabled(!_isStarted);
+            _buffer.Clear();
             UpdatePlayPauseButton();
         }
 
@@ -635,14 +609,18 @@ namespace MultiWebcamApp
 
                 _slowButton.BackColor = _isSlowMode ? System.Drawing.Color.DarkGray : System.Drawing.Color.LightGray;
                 _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
+
+                _displayManager._uiDisplay.SetSlowButtonText(_slowLevel);
             }
         }
 
         private void RecordButton_Checked(Object? sender, EventArgs e)
         {
-            Console.WriteLine($"Record Status: {_recordButton.Checked}");
-
             if (_recordingManager == null) return;
+
+            _recordButton.Checked = !_recordButton.Checked;
+            Console.WriteLine($"Record Status: {_recordButton.Checked}");
+            _displayManager._uiDisplay.SetRecordingState(_recordButton.Checked);
 
             try
             {
@@ -699,9 +677,10 @@ namespace MultiWebcamApp
         private void UpdatePlayPauseButton()
         {
             _pauseButton.IconChar = _isPaused ? IconChar.Play : IconChar.Pause;
+            _displayManager._uiDisplay.SetPlayPauseIcon(_isPaused);
         }
 
-        private async void CloseButton_Click(object sender, EventArgs e)
+        private async void CloseButton_Click(object? sender, EventArgs e)
         {
             if (_isClosing) return;
             await CloseApplication();
@@ -729,9 +708,7 @@ namespace MultiWebcamApp
             {
                 Invoke(new Action(() =>
                 {
-                    if (_headDisplay.IsLoaded) _headDisplay.Dispatcher.Invoke(() => _headDisplay.Close());
-                    if (_bodyDisplay.IsLoaded) _bodyDisplay.Dispatcher.Invoke(() => _bodyDisplay.Close());
-                    if (_pressureDisplay.IsLoaded) _pressureDisplay.Dispatcher.Invoke(() => _pressureDisplay.Close());
+                    _displayManager.CloseDisplay();
                 }));
             }
             CleanupRecordingResources();
