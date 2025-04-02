@@ -16,6 +16,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Timers;
 using System.Windows;
+using static UserInterface.MainWindow;
 
 namespace MultiWebcamApp
 {
@@ -161,7 +162,7 @@ namespace MultiWebcamApp
                                 int remainingFrames = delayFrames - _buffer.Count + 1;
                                 int countdownSeconds = (int)(remainingFrames / FPS) + 1;
                                 msgLower = statusMessage(_buffer.Count / FPS);
-                                msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "▶";
+                                msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "●";
                             }
                             else
                             {
@@ -527,7 +528,7 @@ namespace MultiWebcamApp
             _recordButton.OnText = "녹화 On";
             _recordButton.OffText = "녹화 Off";
             _recordButton.TextFont = new System.Drawing.Font("맑은 고딕", 24/2, System.Drawing.FontStyle.Bold);
-            _recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
+            //_recordButton.CheckedChanged += new EventHandler(RecordButton_Checked);
             //_recordButton.Enabled = false;
 
             // 녹화 상태 표시 타이머
@@ -728,29 +729,67 @@ namespace MultiWebcamApp
             }
         }
 
-        private void RecordButton_Checked(Object? sender, EventArgs e)
+        private void RecordButton_Checked(Object? sender, RecordingSettingsEventArgs e)
         {
-            if (_recordingManager == null) return;
-
-            _recordButton.Checked = !_recordButton.Checked;
-            Console.WriteLine($"Record Status: {_recordButton.Checked}");
-            _displayManager.UiDisplaySetRecordingState(_recordButton.Checked);
-
             try
             {
-                if (_recordButton.Checked)
+                if (_recordingManager == null) return;
+
+                // 현재 상태 확인
+                bool isCurrentlyRecording = _recordingManager.IsRecording;
+
+                if (!isCurrentlyRecording) // 녹화 시작하려는 경우
                 {
-                    Console.WriteLine("Record Ready.");
+                    // 저장 경로 설정
+                    string savePath;
+                    if (e.UseDesktop)
+                    {
+                        savePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Recordings");
+                    }
+                    else
+                    {
+                        savePath = Path.Combine(e.DrivePath, "Recordings");
+                    }
+
+                    // 레이아웃 모드 설정
+                    var layoutMode = e.UseVerticalLayout ?
+                        RecordingManager.LayoutMode.VerticalStack :
+                        RecordingManager.LayoutMode.MonitorOptimized;
+
+                    // 저장 경로 설정
+                    _recordingManager.Dispose();
+                    _recordingManager = new RecordingManager(_displayManager.PressureDisplay, savePath, layoutMode);
+                    //_recordingManager.SetSavePath(savePath);
+                    //_recordingManager.SetLayoutMode(layoutMode);
+
+                    // 녹화 시작
+                    _recordingManager.StartRecording();
+
+                    // UI 상태 업데이트
+                    _recordButton.Checked = true;
+                    _displayManager.UiDisplaySetRecordingState(true);
+
+                    Console.WriteLine("Recording started");
                 }
-                else
+                else // 녹화 중지하려는 경우
                 {
+                    // 녹화 중지
                     _recordingManager.StopRecordingAsync().Wait();
+
+                    // UI 상태 업데이트
+                    _recordButton.Checked = false;
+                    _displayManager.UiDisplaySetRecordingState(false);
+
+                    Console.WriteLine("Recording stopped");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"녹화 상태 변경 오류: {ex.Message}");
+
+                // 오류 발생 시 녹화 중지로 초기화
                 _recordButton.Checked = false;
+                _displayManager.UiDisplaySetRecordingState(false);
             }
         }
 

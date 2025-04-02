@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
+using static UserInterface.MainWindow;
 
 namespace MultiWebcamApp
 {
@@ -302,7 +303,7 @@ namespace MultiWebcamApp
             }
         }
 
-        public void RegisterUiDisplayRecordToggleEvent(EventHandler handler)
+        public void RegisterUiDisplayRecordToggleEvent(EventHandler<RecordingSettingsEventArgs> handler)
         {
             if (_uiDisplay != null)
             {

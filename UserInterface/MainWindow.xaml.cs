@@ -16,6 +16,20 @@ namespace UserInterface
     /// </summary>
     public partial class MainWindow : Window
     {
+        public class RecordingSettingsEventArgs : EventArgs
+        {
+            public bool UseDesktop { get; set; }
+            public bool UseVerticalLayout { get; set; }
+            public string DrivePath { get; set; }
+
+            public RecordingSettingsEventArgs(bool useDesktop, bool useVerticalLayout, string drivePath)
+            {
+                UseDesktop = useDesktop;
+                UseVerticalLayout = useVerticalLayout;
+                DrivePath = drivePath;
+            }
+        }
+
         public event EventHandler CloseButton;
         public event EventHandler<RoutedPropertyChangedEventArgs<double>> DelaySlider;
         public event EventHandler StartButton;
@@ -23,7 +37,8 @@ namespace UserInterface
         public event EventHandler BackwardButton;
         public event EventHandler ForwardButton;
         public event EventHandler SlowButton;
-        public event EventHandler RecordToggle;
+        // 이벤트 정의 변경
+        public event EventHandler<RecordingSettingsEventArgs> RecordToggle;
 
         private bool _isStarted = false;
         // 녹화 상태에 따른 토글 UI 
@@ -80,7 +95,30 @@ namespace UserInterface
 
         private void recordToggle_Click(object sender, RoutedEventArgs e)
         {
-            RecordToggle?.Invoke(this, e);
+            if (!_isRecording)
+            {
+                // 녹화 시작 시 설정 창 표시
+                var settingsWindow = new RecordingSettingsWindow();
+                settingsWindow.Owner = this;
+                bool? result = settingsWindow.ShowDialog();
+
+                if (result == true)
+                {
+                    // 선택된 설정으로 이벤트 발생
+                    var args = new RecordingSettingsEventArgs(
+                        settingsWindow.UseDesktop,
+                        settingsWindow.UseVerticalLayout,
+                        settingsWindow.SelectedDrive
+                    );
+
+                    RecordToggle?.Invoke(this, args);
+                }
+            }
+            else
+            {
+                // 녹화 중지는 추가 설정 없이 기존 이벤트 발생
+                RecordToggle?.Invoke(this, new RecordingSettingsEventArgs(true, true, string.Empty));
+            }
         }
 
         // 마우스 다운/업 이벤트 - 이벤트 버블링으로 클릭 이벤트 발생
@@ -126,7 +164,7 @@ namespace UserInterface
 
         public void SetSlowButtonText(int slowLevel)
         {
-            btnSlow.Content = slowLevel == 1 ? "Slow" : $"&#10;Slow&#10;x{1.0 / slowLevel,1:F2}";
+            btnSlow.Content = slowLevel == 1 ? "Slow" : $"\nSlow\nx{1.0 / slowLevel,1:F2}";
         }
 
         public void SetRecordToggleEnabled(bool enabled)
@@ -139,8 +177,11 @@ namespace UserInterface
         /// </summary>
         public void SetPlayPauseIcon(bool isPaused)
         {
-            playIcon.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
-            playPauseIcon.Visibility = isPaused ? Visibility.Collapsed : Visibility.Visible;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            {
+                playIcon.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
+                playPauseIcon.Visibility = isPaused ? Visibility.Collapsed : Visibility.Visible;
+            }));
         }
 
         /// <summary>

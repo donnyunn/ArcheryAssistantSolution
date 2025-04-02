@@ -25,10 +25,29 @@ namespace MultiWebcamApp
     /// - UI 스레드 블로킹 방지
     /// - 효율적인 스크린샷 캡처 및 처리
     /// - 스레드 안전성 강화
+    /// - 화면 배치 모드 선택 기능 (세로 스택 또는 PC 모니터 최적화)
+    /// - 커스텀 저장 경로 지원
+    /// - 60FPS 고화질 녹화 지원
     /// </summary>
     public class RecordingManager : IDisposable
     {
         #region 필드 및 속성
+
+        /// <summary>
+        /// 화면 배치 모드 열거형
+        /// </summary>
+        public enum LayoutMode
+        {
+            /// <summary>
+            /// 세로 스택 모드 (3개 화면을 세로로 배치, 960x1620)
+            /// </summary>
+            VerticalStack = 1,
+
+            /// <summary>
+            /// PC 모니터 최적화 모드 (웹캠 가로 배치 + 압력맵 아래, 1920x1080)
+            /// </summary>
+            MonitorOptimized = 2
+        }
 
         // 녹화 설정
         private readonly int _frameWidth;
@@ -36,8 +55,13 @@ namespace MultiWebcamApp
         private readonly double _fps;
         private readonly int _recordingIntervalMinutes;
         private readonly string _tempFilePath;
-        private readonly string _targetDirectory;
+        private string _targetDirectory;
         private readonly FourCC _codec;
+        private LayoutMode _layoutMode;
+
+        // 레이아웃 관련 계산 필드
+        private readonly int _outputWidth;
+        private readonly int _outputHeight;
 
         // 녹화 상태 관리
         private ConcurrentQueue<Mat> _frameQueue;
@@ -61,11 +85,17 @@ namespace MultiWebcamApp
         private readonly PressureMapViewer.MainWindow _pressureMapWindow;
         private Task _captureTask;
         private CancellationTokenSource _captureCts;
-        private readonly BlockingCollection<Bitmap> _captureQueue = new BlockingCollection<Bitmap>(new ConcurrentQueue<Bitmap>(), 2);
+        private readonly BlockingCollection<Bitmap> _captureQueue = new BlockingCollection<Bitmap>(new ConcurrentQueue<Bitmap>(), 3); // 큐 크기 증가
         private readonly int _captureWidth;
         private readonly int _captureHeight;
-        private readonly TimeSpan _captureInterval = TimeSpan.FromMilliseconds(33); // ~30fps
+        private readonly TimeSpan _captureInterval = TimeSpan.FromMilliseconds(16); // ~60fps에 맞게 조정
         private bool _isCaptureActive;
+
+        // 성능 최적화를 위한 필드
+        private readonly ConcurrentQueue<FrameData> _inputFrameQueue = new ConcurrentQueue<FrameData>();
+        private Task _frameProcessingTask;
+        private CancellationTokenSource _frameProcessingCts;
+        private bool _isFrameProcessingActive;
 
         // 상태 모니터링
         private readonly Stopwatch _perfStopwatch = new Stopwatch();
@@ -90,7 +120,7 @@ namespace MultiWebcamApp
         /// <summary>
         /// 녹화 저장할 폴더 이름
         /// </summary>
-        private string _usbDirectoryName = "Recordings"; 
+        private string _usbDirectoryName = "Recordings";
 
         #endregion
 
@@ -100,15 +130,19 @@ namespace MultiWebcamApp
         /// RecordingManager 생성자
         /// </summary>
         /// <param name="pressureMapWindow">압력 맵 윈도우 인스턴스</param>
-        /// <param name="frameWidth">녹화 프레임 가로 크기</param>
-        /// <param name="frameHeight">녹화 프레임 세로 크기</param>
+        /// <param name="savePath">녹화 파일 저장 경로 (null이면 기본 경로 사용)</param>
+        /// <param name="layoutMode">화면 배치 모드</param>
+        /// <param name="frameWidth">입력 프레임 가로 크기</param>
+        /// <param name="frameHeight">입력 프레임 세로 크기</param>
         /// <param name="fps">초당 프레임 수</param>
         /// <param name="saveIntervalMinutes">자동 저장 간격(분)</param>
         public RecordingManager(
             PressureMapViewer.MainWindow pressureMapWindow,
+            string savePath = null,
+            LayoutMode layoutMode = LayoutMode.VerticalStack,
             int frameWidth = 960,
             int frameHeight = 540,
-            double fps = 30.0,
+            double fps = 60.0, // 기본값 60FPS로 변경
             int saveIntervalMinutes = 1)
         {
             // 기본 설정
@@ -121,6 +155,21 @@ namespace MultiWebcamApp
             _isMixingFrames = true;
             _captureWidth = frameWidth;
             _captureHeight = frameHeight;
+            _layoutMode = layoutMode;
+
+            // 레이아웃 모드에 따른 출력 해상도 설정
+            switch (layoutMode)
+            {
+                case LayoutMode.MonitorOptimized:
+                    _outputWidth = frameWidth * 2; // 1920 (웹캠 2개 가로 배치)
+                    _outputHeight = frameHeight * 2; // 1080 (웹캠 위, 압력맵 아래)
+                    break;
+                case LayoutMode.VerticalStack:
+                default:
+                    _outputWidth = frameWidth; // 960
+                    _outputHeight = frameHeight * 3; // 1620 (세로로 3개 쌓기)
+                    break;
+            }
 
             // 코덱 설정 (MP4V가 가장 호환성이 좋음)
             _codec = FourCC.MP4V;
@@ -128,7 +177,10 @@ namespace MultiWebcamApp
             // 저장 경로 설정
             string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             _tempFilePath = Path.Combine(desktopPath, "LastReplay.mp4");
-            _targetDirectory = Path.Combine(desktopPath, _usbDirectoryName);
+
+            // 상위 클래스에서 전달받은 저장 경로 또는 기본 경로 사용
+            _targetDirectory = !string.IsNullOrEmpty(savePath) ?
+                savePath : Path.Combine(desktopPath, _usbDirectoryName);
 
             // 저장 디렉토리 생성
             if (!Directory.Exists(_targetDirectory))
@@ -173,6 +225,9 @@ namespace MultiWebcamApp
                     // 화면 캡처 시작
                     StartCaptureProcess();
 
+                    // 프레임 처리 작업 시작
+                    StartFrameProcessingTask();
+
                     // 기존 임시 파일 삭제
                     CleanupTempFile();
 
@@ -216,6 +271,9 @@ namespace MultiWebcamApp
 
             try
             {
+                // 프레임 처리 중지
+                await StopFrameProcessingTaskAsync();
+
                 // 캡처 중지
                 await StopCaptureProcessAsync();
 
@@ -241,36 +299,27 @@ namespace MultiWebcamApp
         }
 
         /// <summary>
-        /// 프레임 추가
+        /// 프레임 추가 - 시간 지연 없이 빠르게 처리
         /// </summary>
         /// <param name="frame">추가할 프레임 데이터</param>
         public void AddFrame(FrameData frame)
         {
+            // 녹화 중이 아니면 무시
             if (!_isRecording || frame == null)
                 return;
 
-            try
-            {
-                // 프레임 큐가 너무 크면 드롭
-                if (_frameQueue.Count > 30)
-                {
-                    Interlocked.Increment(ref _droppedFrames);
-                    return;
-                }
+            // 입력 큐에 프레임 추가 (깊은 복사를 위해 복제 필요)
+            var frameCopy = frame.Clone();
+            _inputFrameQueue.Enqueue(frameCopy);
 
-                // 3개의 프레임을 세로로 결합
-                using (var combinedFrame = CombineFrames(frame))
-                {
-                    if (combinedFrame != null)
-                    {
-                        _frameQueue.Enqueue(combinedFrame.Clone());
-                        Interlocked.Increment(ref _frameCount);
-                    }
-                }
-            }
-            catch (Exception ex)
+            // 큐가 너무 커지면 오래된 프레임 드롭
+            if (_inputFrameQueue.Count > 120) // 60fps 기준 2초 분량
             {
-                Console.WriteLine($"프레임 추가 중 오류: {ex.Message}");
+                if (_inputFrameQueue.TryDequeue(out var oldFrame))
+                {
+                    oldFrame.Dispose();
+                    Interlocked.Increment(ref _droppedFrames);
+                }
             }
         }
 
@@ -290,6 +339,50 @@ namespace MultiWebcamApp
         public void SetFrameMixingRatio(double alpha)
         {
             _frameAlpha = Math.Clamp(alpha, 0.0, 1.0);
+        }
+
+        /// <summary>
+        /// 저장 경로 설정
+        /// </summary>
+        /// <param name="path">저장할 디렉토리 경로</param>
+        public void SetSavePath(string path)
+        {
+            if (!string.IsNullOrEmpty(path))
+            {
+                if (!Directory.Exists(path))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"저장 경로 생성 중 오류: {ex.Message}");
+                        return;
+                    }
+                }
+
+                // 경로 업데이트
+                _targetDirectory = path;
+                Console.WriteLine($"저장 경로가 '{path}'(으)로 변경되었습니다.");
+            }
+        }
+
+        public void SetLayoutMode(LayoutMode mode)
+        {
+            _layoutMode = mode;
+        }
+
+        /// <summary>
+        /// USB 저장 폴더명 설정
+        /// </summary>
+        /// <param name="directoryName">USB에 생성할 폴더명</param>
+        public void SetUsbDirectoryName(string directoryName)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryName))
+            {
+                _usbDirectoryName = directoryName;
+            }
         }
 
         /// <summary>
@@ -314,6 +407,7 @@ namespace MultiWebcamApp
                 // 캔슬레이션 토큰 정리
                 _cts?.Dispose();
                 _captureCts?.Dispose();
+                _frameProcessingCts?.Dispose();
 
                 // 세마포어 정리
                 _captureSemaphore?.Dispose();
@@ -321,6 +415,9 @@ namespace MultiWebcamApp
                 // 캡처 큐 정리
                 ClearCaptureQueue();
                 _captureQueue?.Dispose();
+
+                // 입력 프레임 큐 정리
+                ClearInputFrameQueue();
 
                 Console.WriteLine("RecordingManager 자원이 정리되었습니다.");
             }
@@ -332,260 +429,288 @@ namespace MultiWebcamApp
 
         #endregion
 
-        #region 내부 메서드 - 프레임 처리
+        #region 내부 메서드 - 프레임 처리 최적화
 
         /// <summary>
-        /// 프레임 처리 메인 루프
+        /// 입력 프레임 처리 작업 시작
         /// </summary>
-        private async Task ProcessFramesAsync(CancellationToken token)
+        private void StartFrameProcessingTask()
         {
-            try
+            if (_isFrameProcessingActive)
+                return;
+
+            _frameProcessingCts = new CancellationTokenSource();
+            _isFrameProcessingActive = true;
+
+            _frameProcessingTask = Task.Run(async () =>
             {
-                int frameCounter = 0;
-                bool errorReported = false; // 에러 중복 보고 방지
-
-                while (!token.IsCancellationRequested || !_frameQueue.IsEmpty)
+                try
                 {
-                    // 작업 취소 요청 시 루프 종료
-                    if (token.IsCancellationRequested && _frameQueue.IsEmpty)
-                        break;
-
-                    Mat frame = null;
-                    bool dequeued = false;
-
-                    try
+                    while (!_frameProcessingCts.Token.IsCancellationRequested)
                     {
-                        // 프레임 가져오기 시도
-                        dequeued = _frameQueue.TryDequeue(out frame);
-
-                        if (dequeued && frame != null && !frame.Empty())
-                        {
-                            // 스레드 안전을 위한 락 사용
-                            lock (_lockObject)
-                            {
-                                // null 체크와 IsOpened 확인을 반드시 수행
-                                if (_videoWriter != null && _videoWriter.IsOpened())
-                                {
-                                    try
-                                    {
-                                        // 프레임 크기와 타입 확인 
-                                        if (frame.Width == _frameWidth && frame.Height == _frameHeight * 3)
-                                        {
-                                            _videoWriter.Write(frame);
-                                            frameCounter++;
-
-                                            // 에러 플래그 리셋
-                                            errorReported = false;
-
-                                            // 주기적으로 로그 기록
-                                            if (frameCounter % 100 == 0)
-                                            {
-                                                //Console.WriteLine($"영상에 {frameCounter}개 프레임이 기록되었습니다.");
-                                            }
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine($"프레임 크기 불일치: 예상 {_frameWidth}x{_frameHeight * 3}, 실제 {frame.Width}x{frame.Height}");
-                                        }
-                                    }
-                                    catch (AccessViolationException avEx)
-                                    {
-                                        // 심각한 오류 발생 - 비디오 작성기 재초기화 필요
-                                        if (!errorReported)
-                                        {
-                                            Console.WriteLine($"비디오 작성 중 메모리 오류 발생: {avEx.Message}");
-                                            Console.WriteLine("비디오 작성기를 재초기화합니다...");
-                                            errorReported = true;
-                                        }
-
-                                        // 비디오 작성기 재생성 시도
-                                        try
-                                        {
-                                            CleanupVideoWriter();
-                                            InitializeVideoWriter();
-                                        }
-                                        catch (Exception reinitEx)
-                                        {
-                                            Console.WriteLine($"비디오 작성기 재초기화 실패: {reinitEx.Message}");
-                                        }
-
-                                        // 약간의 대기 후 계속 진행
-                                        Task.Delay(100, token).Wait();
-                                    }
-                                }
-                                else
-                                {
-                                    // 비디오 작성기가 없는 경우
-                                    if (!errorReported)
-                                    {
-                                        Console.WriteLine("비디오 작성기가 초기화되지 않았거나 닫혔습니다. 재초기화를 시도합니다.");
-                                        errorReported = true;
-
-                                        try
-                                        {
-                                            CleanupVideoWriter();
-                                            InitializeVideoWriter();
-                                        }
-                                        catch (Exception initEx)
-                                        {
-                                            Console.WriteLine($"비디오 작성기 초기화 실패: {initEx.Message}");
-                                        }
-                                    }
-                                }
-                            } // lock 종료
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!errorReported)
-                        {
-                            Console.WriteLine($"프레임 처리 중 오류: {ex.Message}");
-                            errorReported = true;
-                        }
-                    }
-                    finally
-                    {
-                        // 프레임 해제
-                        if (dequeued && frame != null)
+                        // 큐에서 프레임 가져오기
+                        if (_inputFrameQueue.TryDequeue(out var frameData))
                         {
                             try
                             {
-                                frame.Dispose();
-                            }
-                            catch { }
-                        }
-                    }
+                                // 배치 모드에 따라 프레임 처리
+                                using (var combinedFrame = CombineFramesWithLayout(frameData))
+                                {
+                                    if (combinedFrame != null)
+                                    {
+                                        _frameQueue.Enqueue(combinedFrame.Clone());
+                                        Interlocked.Increment(ref _frameCount);
+                                    }
+                                }
 
-                    // 큐가 비어있거나 에러 발생 시 잠시 대기
-                    if (!dequeued || errorReported)
-                    {
-                        try
-                        {
-                            await Task.Delay(50, token); // 더 긴 대기 시간으로 CPU 사용량 줄임
+                                // 프레임 데이터 해제
+                                frameData.Dispose();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"프레임 처리 중 오류: {ex.Message}");
+                                frameData.Dispose();
+                            }
                         }
-                        catch (OperationCanceledException)
+                        else
                         {
-                            break; // 취소 요청 시 즉시 종료
+                            // 큐가 비어있으면 짧게 대기
+                            await Task.Delay(1, _frameProcessingCts.Token);
                         }
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    // 정상적인 작업 취소
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"프레임 처리 작업 중 오류: {ex.Message}");
+                }
+                finally
+                {
+                    _isFrameProcessingActive = false;
+                }
+            }, _frameProcessingCts.Token);
+        }
 
-                Console.WriteLine($"프레임 처리 완료: 총 {frameCounter}개 프레임이 저장되었습니다.");
-            }
-            catch (OperationCanceledException)
+        /// <summary>
+        /// 입력 프레임 처리 작업 중지
+        /// </summary>
+        private async Task StopFrameProcessingTaskAsync()
+        {
+            if (!_isFrameProcessingActive)
+                return;
+
+            _frameProcessingCts?.Cancel();
+
+            try
             {
-                Console.WriteLine("프레임 처리 작업이 취소되었습니다.");
+                // 최대 2초 대기
+                if (_frameProcessingTask != null)
+                {
+                    var timeoutTask = Task.Delay(2000);
+                    await Task.WhenAny(_frameProcessingTask, timeoutTask);
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"프레임 처리 중 치명적 오류: {ex.Message}");
-                Console.WriteLine($"스택 트레이스: {ex.StackTrace}");
+                Console.WriteLine($"프레임 처리 작업 중지 중 오류: {ex.Message}");
+            }
+            finally
+            {
+                _isFrameProcessingActive = false;
+
+                // 남은 프레임 정리
+                ClearInputFrameQueue();
             }
         }
 
         /// <summary>
-        /// 프레임 데이터를 결합하여 단일 이미지로 만듦
+        /// 입력 프레임 큐 정리
         /// </summary>
-        private Mat CombineFrames(FrameData frameData)
+        private void ClearInputFrameQueue()
+        {
+            while (_inputFrameQueue.TryDequeue(out var frame))
+            {
+                try
+                {
+                    frame?.Dispose();
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// 레이아웃 모드에 따라 프레임 결합
+        /// </summary>
+        private Mat CombineFramesWithLayout(FrameData frameData)
+        {
+            switch (_layoutMode)
+            {
+                case LayoutMode.MonitorOptimized:
+                    return CombineFramesMonitorOptimized(frameData);
+                case LayoutMode.VerticalStack:
+                default:
+                    return CombineFramesVertical(frameData);
+            }
+        }
+
+        /// <summary>
+        /// PC 모니터 최적화 레이아웃으로 프레임 결합 (1920x1080)
+        /// </summary>
+        private Mat CombineFramesMonitorOptimized(FrameData frameData)
         {
             try
             {
-                // 출력할 결합된 이미지 생성 (세로로 3개 적층)
-                Mat combinedFrame = new Mat(_frameHeight * 3, _frameWidth, MatType.CV_8UC3, Scalar.Black);
+                // 출력 이미지 생성 (1920x1080)
+                Mat combinedFrame = new Mat(_outputHeight, _outputWidth, MatType.CV_8UC3, Scalar.Black);
 
-                // Head 프레임 처리 (상단)
-                ProcessHeadFrame(frameData, combinedFrame);
+                // 웹캠 이미지 영역 계산
+                Rect headRect = new Rect(0, 0, _frameWidth, _frameHeight);  // 좌측 상단
+                Rect bodyRect = new Rect(_frameWidth, 0, _frameWidth, _frameHeight);  // 우측 상단
+                Rect pressureRect = new Rect(0, _frameHeight, _frameWidth, _frameHeight);  // 하단 전체
 
-                // Body 프레임 처리 (중간)
-                ProcessBodyFrame(frameData, combinedFrame);
+                // 헤드 카메라 프레임 처리 (좌측 상단)
+                ProcessHeadFrameWithRect(frameData, combinedFrame, headRect);
 
-                // Pressure 화면 처리 (하단)
-                ProcessPressureView(frameData, combinedFrame);
+                // 바디 카메라 프레임 처리 (우측 상단)
+                ProcessBodyFrameWithRect(frameData, combinedFrame, bodyRect);
+
+                // 압력 맵 프레임 처리 (하단 전체)
+                ProcessPressureViewWithRect(frameData, combinedFrame, pressureRect, true); // 가로로 넓게 표시
 
                 return combinedFrame;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"프레임 결합 중 오류: {ex.Message}");
+                Console.WriteLine($"모니터 최적화 프레임 결합 중 오류: {ex.Message}");
                 return null;
             }
         }
 
         /// <summary>
-        /// 헤드 카메라 프레임 처리
+        /// 기존 세로 스택 레이아웃으로 프레임 결합 (960x1620)
         /// </summary>
-        private void ProcessHeadFrame(FrameData frameData, Mat combinedFrame)
+        private Mat CombineFramesVertical(FrameData frameData)
+        {
+            try
+            {
+                // 출력할 결합된 이미지 생성 (세로로 3개 적층)
+                Mat combinedFrame = new Mat(_outputHeight, _outputWidth, MatType.CV_8UC3, Scalar.Black);
+
+                // 영역 계산
+                Rect headRect = new Rect(0, 0, _frameWidth, _frameHeight);  // 상단
+                Rect bodyRect = new Rect(0, _frameHeight, _frameWidth, _frameHeight);  // 중간
+                Rect pressureRect = new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight);  // 하단
+
+                // Head 프레임 처리 (상단)
+                ProcessHeadFrameWithRect(frameData, combinedFrame, headRect);
+
+                // Body 프레임 처리 (중간)
+                ProcessBodyFrameWithRect(frameData, combinedFrame, bodyRect);
+
+                // Pressure 화면 처리 (하단)
+                ProcessPressureViewWithRect(frameData, combinedFrame, pressureRect, false);
+
+                return combinedFrame;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"세로 스택 프레임 결합 중 오류: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 헤드 카메라 프레임 처리 (지정 영역)
+        /// </summary>
+        private void ProcessHeadFrameWithRect(FrameData frameData, Mat combinedFrame, Rect targetRect)
         {
             if (frameData.WebcamHead == null || frameData.WebcamHead.Empty())
             {
                 // 현재 프레임이 없고 이전 프레임이 있으면 이전 프레임 사용
                 if (_lastHeadFrame != null && !_lastHeadFrame.Empty())
                 {
-                    Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
-                    _lastHeadFrame.CopyTo(headRegion);
+                    Mat resized = new Mat();
+                    Cv2.Resize(_lastHeadFrame, resized, new Size(targetRect.Width, targetRect.Height));
+
+                    Mat headRegion = new Mat(combinedFrame, targetRect);
+                    resized.CopyTo(headRegion);
+
+                    resized.Dispose();
                 }
                 return;
             }
 
             // 헤드 프레임 리사이징
-            Mat resizedHead = new Mat();
+            Mat currentResized = new Mat();
             try
             {
-                Cv2.Resize(frameData.WebcamHead, resizedHead, new Size(_frameWidth, _frameHeight));
+                Cv2.Resize(frameData.WebcamHead, currentResized, new Size(targetRect.Width, targetRect.Height));
 
                 // 깜빡임 방지를 위한 프레임 혼합
                 if (_isMixingFrames && _lastHeadFrame != null && !_lastHeadFrame.Empty())
                 {
                     try
                     {
+                        Mat lastResized = new Mat();
+                        Cv2.Resize(_lastHeadFrame, lastResized, new Size(targetRect.Width, targetRect.Height));
+
                         Mat blendedHead = new Mat();
-                        Cv2.AddWeighted(resizedHead, _frameAlpha, _lastHeadFrame, 1.0 - _frameAlpha, 0, blendedHead);
+                        Cv2.AddWeighted(currentResized, _frameAlpha, lastResized, 1.0 - _frameAlpha, 0, blendedHead);
 
                         // 혼합된 프레임 복사
-                        Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
+                        Mat headRegion = new Mat(combinedFrame, targetRect);
                         blendedHead.CopyTo(headRegion);
 
                         blendedHead.Dispose();
+                        lastResized.Dispose();
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"헤드 프레임 혼합 중 오류: {ex.Message}");
 
                         // 오류 시 현재 프레임만 사용
-                        Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
-                        resizedHead.CopyTo(headRegion);
+                        Mat headRegion = new Mat(combinedFrame, targetRect);
+                        currentResized.CopyTo(headRegion);
                     }
                 }
                 else
                 {
                     // 혼합 없이 현재 프레임 사용
-                    Mat headRegion = new Mat(combinedFrame, new Rect(0, 0, _frameWidth, _frameHeight));
-                    resizedHead.CopyTo(headRegion);
+                    Mat headRegion = new Mat(combinedFrame, targetRect);
+                    currentResized.CopyTo(headRegion);
                 }
 
-                // 이전 프레임 정리 및 저장
-                SafeDisposeAndUpdate(ref _lastHeadFrame, resizedHead.Clone());
-                resizedHead.Dispose();
+                // 이전 프레임 업데이트 (원본 크기로 저장)
+                SafeDisposeAndUpdate(ref _lastHeadFrame, frameData.WebcamHead.Clone());
+                currentResized.Dispose();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"헤드 프레임 처리 중 오류: {ex.Message}");
-                resizedHead?.Dispose();
+                currentResized?.Dispose();
             }
         }
 
         /// <summary>
-        /// 바디 카메라 프레임 처리
+        /// 바디 카메라 프레임 처리 (지정 영역)
         /// </summary>
-        private void ProcessBodyFrame(FrameData frameData, Mat combinedFrame)
+        private void ProcessBodyFrameWithRect(FrameData frameData, Mat combinedFrame, Rect targetRect)
         {
             if (frameData.WebcamBody == null || frameData.WebcamBody.Empty())
             {
                 // 현재 프레임이 없고 이전 프레임이 있으면 이전 프레임 사용
                 if (_lastBodyFrame != null && !_lastBodyFrame.Empty())
                 {
-                    Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
-                    _lastBodyFrame.CopyTo(bodyRegion);
+                    Mat resized = new Mat();
+                    Cv2.Resize(_lastBodyFrame, resized, new Size(targetRect.Width, targetRect.Height));
+
+                    Mat bodyRegion = new Mat(combinedFrame, targetRect);
+                    resized.CopyTo(bodyRegion);
+
+                    resized.Dispose();
                 }
                 return;
             }
@@ -594,40 +719,44 @@ namespace MultiWebcamApp
             Mat resizedBody = new Mat();
             try
             {
-                Cv2.Resize(frameData.WebcamBody, resizedBody, new Size(_frameWidth, _frameHeight));
+                Cv2.Resize(frameData.WebcamBody, resizedBody, new Size(targetRect.Width, targetRect.Height));
 
                 // 깜빡임 방지를 위한 프레임 혼합
                 if (_isMixingFrames && _lastBodyFrame != null && !_lastBodyFrame.Empty())
                 {
                     try
                     {
+                        Mat lastResized = new Mat();
+                        Cv2.Resize(_lastBodyFrame, lastResized, new Size(targetRect.Width, targetRect.Height));
+
                         Mat blendedBody = new Mat();
-                        Cv2.AddWeighted(resizedBody, _frameAlpha, _lastBodyFrame, 1.0 - _frameAlpha, 0, blendedBody);
+                        Cv2.AddWeighted(resizedBody, _frameAlpha, lastResized, 1.0 - _frameAlpha, 0, blendedBody);
 
                         // 혼합된 프레임 복사
-                        Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                        Mat bodyRegion = new Mat(combinedFrame, targetRect);
                         blendedBody.CopyTo(bodyRegion);
 
                         blendedBody.Dispose();
+                        lastResized.Dispose();
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"바디 프레임 혼합 중 오류: {ex.Message}");
 
                         // 오류 시 현재 프레임만 사용
-                        Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                        Mat bodyRegion = new Mat(combinedFrame, targetRect);
                         resizedBody.CopyTo(bodyRegion);
                     }
                 }
                 else
                 {
                     // 혼합 없이 현재 프레임 사용
-                    Mat bodyRegion = new Mat(combinedFrame, new Rect(0, _frameHeight, _frameWidth, _frameHeight));
+                    Mat bodyRegion = new Mat(combinedFrame, targetRect);
                     resizedBody.CopyTo(bodyRegion);
                 }
 
-                // 이전 프레임 정리 및 저장
-                SafeDisposeAndUpdate(ref _lastBodyFrame, resizedBody.Clone());
+                // 이전 프레임 업데이트 (원본 크기로 저장)
+                SafeDisposeAndUpdate(ref _lastBodyFrame, frameData.WebcamBody.Clone());
                 resizedBody.Dispose();
             }
             catch (Exception ex)
@@ -636,11 +765,10 @@ namespace MultiWebcamApp
                 resizedBody?.Dispose();
             }
         }
-
         /// <summary>
-        /// 압력 데이터 처리 및 PressureMapViewer 화면 캡처
+        /// 압력 데이터 처리 및 PressureMapViewer 화면 캡처 (지정 영역)
         /// </summary>
-        private void ProcessPressureView(FrameData frameData, Mat combinedFrame)
+        private void ProcessPressureViewWithRect(FrameData frameData, Mat combinedFrame, Rect targetRect, bool isWideMode)
         {
             try
             {
@@ -656,10 +784,10 @@ namespace MultiWebcamApp
                         captureFrame = BitmapConverter.ToMat(captureBitmap);
 
                         // 크기 조정
-                        if (captureFrame.Width != _frameWidth || captureFrame.Height != _frameHeight)
+                        if (captureFrame.Width != targetRect.Width || captureFrame.Height != targetRect.Height)
                         {
                             Mat resized = new Mat();
-                            Cv2.Resize(captureFrame, resized, new Size(_frameWidth, _frameHeight));
+                            Cv2.Resize(captureFrame, resized, new Size(targetRect.Width, targetRect.Height));
                             captureFrame.Dispose();
                             captureFrame = resized;
                         }
@@ -680,7 +808,7 @@ namespace MultiWebcamApp
                 // 캡처 실패 시 압력 데이터 직접 시각화
                 if (captureFrame == null && frameData.PressureData != null)
                 {
-                    captureFrame = VisualizePressureData(frameData.PressureData);
+                    captureFrame = VisualizePressureData(frameData.PressureData, targetRect.Width, targetRect.Height, isWideMode);
                 }
 
                 // 이미지 처리 및 혼합
@@ -693,33 +821,55 @@ namespace MultiWebcamApp
                         {
                             try
                             {
+                                Mat lastResized = new Mat();
+                                Cv2.Resize(_lastPressureFrame, lastResized, new Size(targetRect.Width, targetRect.Height));
+
                                 Mat blendedPressure = new Mat();
-                                Cv2.AddWeighted(captureFrame, _frameAlpha, _lastPressureFrame, 1.0 - _frameAlpha, 0, blendedPressure);
+                                Cv2.AddWeighted(captureFrame, _frameAlpha, lastResized, 1.0 - _frameAlpha, 0, blendedPressure);
 
                                 // 혼합된 프레임 복사
-                                Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                                Mat pressureRegion = new Mat(combinedFrame, targetRect);
                                 blendedPressure.CopyTo(pressureRegion);
 
                                 blendedPressure.Dispose();
+                                lastResized.Dispose();
                             }
                             catch (Exception ex)
                             {
                                 Console.WriteLine($"압력 프레임 혼합 중 오류: {ex.Message}");
 
                                 // 오류 시 현재 프레임만 사용
-                                Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                                Mat pressureRegion = new Mat(combinedFrame, targetRect);
                                 captureFrame.CopyTo(pressureRegion);
                             }
                         }
                         else
                         {
                             // 혼합 없이 현재 프레임 사용
-                            Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
+                            Mat pressureRegion = new Mat(combinedFrame, targetRect);
                             captureFrame.CopyTo(pressureRegion);
                         }
 
-                        // 이전 프레임 정리 및 저장
-                        SafeDisposeAndUpdate(ref _lastPressureFrame, captureFrame.Clone());
+                        // 압력맵 프레임 저장 (원본 크기 저장)
+                        if (_lastPressureFrame == null || _lastPressureFrame.Empty())
+                        {
+                            // 첫 프레임은 그대로 저장
+                            SafeDisposeAndUpdate(ref _lastPressureFrame, captureFrame.Clone());
+                        }
+                        else
+                        {
+                            // 그 외에는 원본 크기 확인 후 필요시 리사이징
+                            if (_lastPressureFrame.Width != captureFrame.Width || _lastPressureFrame.Height != captureFrame.Height)
+                            {
+                                Mat resized = new Mat();
+                                Cv2.Resize(captureFrame, resized, new Size(_lastPressureFrame.Width, _lastPressureFrame.Height));
+                                SafeDisposeAndUpdate(ref _lastPressureFrame, resized);
+                            }
+                            else
+                            {
+                                SafeDisposeAndUpdate(ref _lastPressureFrame, captureFrame.Clone());
+                            }
+                        }
                     }
                     finally
                     {
@@ -729,8 +879,13 @@ namespace MultiWebcamApp
                 else if (_lastPressureFrame != null && !_lastPressureFrame.Empty())
                 {
                     // 이미지가 없을 경우 이전 프레임 사용
-                    Mat pressureRegion = new Mat(combinedFrame, new Rect(0, _frameHeight * 2, _frameWidth, _frameHeight));
-                    _lastPressureFrame.CopyTo(pressureRegion);
+                    Mat resizedPressure = new Mat();
+                    Cv2.Resize(_lastPressureFrame, resizedPressure, new Size(targetRect.Width, targetRect.Height));
+
+                    Mat pressureRegion = new Mat(combinedFrame, targetRect);
+                    resizedPressure.CopyTo(pressureRegion);
+
+                    resizedPressure.Dispose();
                 }
             }
             catch (Exception ex)
@@ -742,20 +897,52 @@ namespace MultiWebcamApp
         /// <summary>
         /// 압력 데이터를 시각화하여 Mat 이미지로 변환
         /// </summary>
-        private Mat VisualizePressureData(ushort[] pressureData)
+        /// <param name="pressureData">압력 데이터 배열</param>
+        /// <param name="width">출력 이미지 너비</param>
+        /// <param name="height">출력 이미지 높이</param>
+        /// <param name="isWideMode">와이드 모드 여부 (true=가로로 넓게, false=기본)</param>
+        private Mat VisualizePressureData(ushort[] pressureData, int width = 0, int height = 0, bool isWideMode = false)
         {
             if (pressureData == null || pressureData.Length == 0)
                 return null;
 
             try
             {
-                Mat pressureFrame = new Mat(_frameHeight, _frameWidth, MatType.CV_8UC3, Scalar.Black);
+                // 출력 크기 설정 (지정되지 않은 경우 기본값 사용)
+                int outputWidth = width > 0 ? width : _frameWidth;
+                int outputHeight = height > 0 ? height : _frameHeight;
+
+                Mat pressureFrame = new Mat(outputHeight, outputWidth, MatType.CV_8UC3, Scalar.Black);
                 int dataSize = 96;  // 96x96 압력 데이터 크기
 
-                // 화면 비율을 고려한 셀 크기 및 위치 계산
-                int cellSize = Math.Min(_frameWidth, _frameHeight) / dataSize;
-                int offsetX = (_frameWidth - (cellSize * dataSize)) / 2;
-                int offsetY = (_frameHeight - (cellSize * dataSize)) / 2;
+                // 와이드 모드에 따른 레이아웃 조정
+                int cellSize;
+                int offsetX, offsetY;
+
+                if (isWideMode)
+                {
+                    // 넓은 화면에 맞게 압력 맵 표시 (더 크게 표시)
+                    cellSize = Math.Min(outputWidth / dataSize, outputHeight / dataSize) * 2;
+
+                    // 화면 중앙에 위치
+                    offsetX = (outputWidth - (cellSize * dataSize)) / 2;
+                    offsetY = (outputHeight - (cellSize * dataSize)) / 2;
+
+                    // 화면에 맞지 않는 경우 추가 조정
+                    if (offsetX < 0 || offsetY < 0)
+                    {
+                        cellSize = Math.Max(1, Math.Min(outputWidth / dataSize, outputHeight / dataSize));
+                        offsetX = Math.Max(0, (outputWidth - (cellSize * dataSize)) / 2);
+                        offsetY = Math.Max(0, (outputHeight - (cellSize * dataSize)) / 2);
+                    }
+                }
+                else
+                {
+                    // 기본 모드 (이전과 동일)
+                    cellSize = Math.Min(outputWidth, outputHeight) / dataSize;
+                    offsetX = (outputWidth - (cellSize * dataSize)) / 2;
+                    offsetY = (outputHeight - (cellSize * dataSize)) / 2;
+                }
 
                 // 최대값 찾기
                 ushort maxValue = 0;
@@ -825,6 +1012,15 @@ namespace MultiWebcamApp
                 Console.WriteLine($"압력 데이터 시각화 중 오류: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// [이전 버전 호환성] 프레임 데이터를 결합하여 단일 이미지로 만듦
+        /// </summary>
+        private Mat CombineFrames(FrameData frameData)
+        {
+            // 레이아웃 모드에 따라 적절한 메서드 호출
+            return CombineFramesWithLayout(frameData);
         }
 
         #endregion
@@ -957,7 +1153,7 @@ namespace MultiWebcamApp
                                 var resizedBitmap = ResizeWithAspectRatio(originalBitmap, _captureWidth, _captureHeight);
 
                                 // 큐가 가득 차면 가장 오래된 항목 제거
-                                while (_captureQueue.Count >= 2)
+                                while (_captureQueue.Count >= 3) // 큐 크기 증가 (60fps 지원)
                                 {
                                     if (_captureQueue.TryTake(out Bitmap oldBitmap))
                                         oldBitmap?.Dispose();
@@ -1134,27 +1330,28 @@ namespace MultiWebcamApp
 
                     // 더 안정적인 코덱 시도 순서
                     FourCC[] codecsToTry = new FourCC[] {
-                FourCC.DIVX,  // DivX 코덱
-                FourCC.XVID,  // Xvid 코덱
-                FourCC.MJPG,  // Motion JPEG
-                FourCC.MP4V   // 마지막 시도로 MP4V
-            };
+                        FourCC.DIVX,  // DivX 코덱
+                        FourCC.XVID,  // Xvid 코덱
+                        FourCC.MJPG,  // Motion JPEG
+                        FourCC.MP4V   // 마지막 시도로 MP4V
+                    };
 
                     Exception lastException = null;
                     foreach (var codec in codecsToTry)
                     {
                         try
                         {
+                            // 비디오 작성기 초기화 (레이아웃 모드에 따라 해상도 다름)
                             _videoWriter = new VideoWriter(
                                 _tempFilePath,
                                 codec,
                                 _fps,
-                                new Size(_frameWidth, _frameHeight * 3)
+                                new Size(_outputWidth, _outputHeight)
                             );
 
                             if (_videoWriter.IsOpened())
                             {
-                                Console.WriteLine($"비디오 작성기가 성공적으로 초기화되었습니다. 코덱: {codec}, 해상도: {_frameWidth}x{_frameHeight * 3}, FPS: {_fps}");
+                                Console.WriteLine($"비디오 작성기가 성공적으로 초기화되었습니다. 코덱: {codec}, 해상도: {_outputWidth}x{_outputHeight}, FPS: {_fps}");
                                 return; // 성공하면 반복 종료
                             }
                             else
@@ -1191,6 +1388,155 @@ namespace MultiWebcamApp
                     Console.WriteLine($"비디오 작성기 초기화 중 치명적 오류: {ex.Message}");
                     throw;
                 }
+            }
+        }
+
+        /// <summary>
+        /// 최종 비디오 프레임 처리 메인 루프
+        /// </summary>
+        private async Task ProcessFramesAsync(CancellationToken token)
+        {
+            try
+            {
+                int frameCounter = 0;
+                bool errorReported = false; // 에러 중복 보고 방지
+
+                while (!token.IsCancellationRequested || !_frameQueue.IsEmpty)
+                {
+                    // 작업 취소 요청 시 루프 종료
+                    if (token.IsCancellationRequested && _frameQueue.IsEmpty)
+                        break;
+
+                    Mat frame = null;
+                    bool dequeued = false;
+
+                    try
+                    {
+                        // 프레임 가져오기 시도
+                        dequeued = _frameQueue.TryDequeue(out frame);
+
+                        if (dequeued && frame != null && !frame.Empty())
+                        {
+                            // 스레드 안전을 위한 락 사용
+                            lock (_lockObject)
+                            {
+                                // null 체크와 IsOpened 확인을 반드시 수행
+                                if (_videoWriter != null && _videoWriter.IsOpened())
+                                {
+                                    try
+                                    {
+                                        // 프레임 크기와 타입 확인 (레이아웃 모드에 따라 다름)
+                                        if (frame.Width == _outputWidth && frame.Height == _outputHeight)
+                                        {
+                                            _videoWriter.Write(frame);
+                                            frameCounter++;
+
+                                            // 에러 플래그 리셋
+                                            errorReported = false;
+
+                                            // 주기적으로 로그 기록
+                                            if (frameCounter % 100 == 0)
+                                            {
+                                                //Console.WriteLine($"영상에 {frameCounter}개 프레임이 기록되었습니다.");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"프레임 크기 불일치: 예상 {_outputWidth}x{_outputHeight}, 실제 {frame.Width}x{frame.Height}");
+                                        }
+                                    }
+                                    catch (AccessViolationException avEx)
+                                    {
+                                        // 심각한 오류 발생 - 비디오 작성기 재초기화 필요
+                                        if (!errorReported)
+                                        {
+                                            Console.WriteLine($"비디오 작성 중 메모리 오류 발생: {avEx.Message}");
+                                            Console.WriteLine("비디오 작성기를 재초기화합니다...");
+                                            errorReported = true;
+                                        }
+
+                                        // 비디오 작성기 재생성 시도
+                                        try
+                                        {
+                                            CleanupVideoWriter();
+                                            InitializeVideoWriter();
+                                        }
+                                        catch (Exception reinitEx)
+                                        {
+                                            Console.WriteLine($"비디오 작성기 재초기화 실패: {reinitEx.Message}");
+                                        }
+
+                                        // 약간의 대기 후 계속 진행
+                                        Task.Delay(100, token).Wait();
+                                    }
+                                }
+                                else
+                                {
+                                    // 비디오 작성기가 없는 경우
+                                    if (!errorReported)
+                                    {
+                                        Console.WriteLine("비디오 작성기가 초기화되지 않았거나 닫혔습니다. 재초기화를 시도합니다.");
+                                        errorReported = true;
+
+                                        try
+                                        {
+                                            CleanupVideoWriter();
+                                            InitializeVideoWriter();
+                                        }
+                                        catch (Exception initEx)
+                                        {
+                                            Console.WriteLine($"비디오 작성기 초기화 실패: {initEx.Message}");
+                                        }
+                                    }
+                                }
+                            } // lock 종료
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!errorReported)
+                        {
+                            Console.WriteLine($"프레임 처리 중 오류: {ex.Message}");
+                            errorReported = true;
+                        }
+                    }
+                    finally
+                    {
+                        // 프레임 해제
+                        if (dequeued && frame != null)
+                        {
+                            try
+                            {
+                                frame.Dispose();
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // 큐가 비어있거나 에러 발생 시 잠시 대기
+                    if (!dequeued || errorReported)
+                    {
+                        try
+                        {
+                            await Task.Delay(10, token); // 더 짧은 대기 시간으로 FPS 유지 (60fps: ~16.6ms)
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break; // 취소 요청 시 즉시 종료
+                        }
+                    }
+                }
+
+                Console.WriteLine($"프레임 처리 완료: 총 {frameCounter}개 프레임이 저장되었습니다.");
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("프레임 처리 작업이 취소되었습니다.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"프레임 처리 중 치명적 오류: {ex.Message}");
+                Console.WriteLine($"스택 트레이스: {ex.StackTrace}");
             }
         }
 
@@ -1413,18 +1759,6 @@ namespace MultiWebcamApp
             {
                 Console.WriteLine($"USB 드라이브 검색 중 오류: {ex.Message}");
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// USB 저장 폴더명 설정
-        /// </summary>
-        /// <param name="directoryName">USB에 생성할 폴더명</param>
-        public void SetUsbDirectoryName(string directoryName)
-        {
-            if (!string.IsNullOrWhiteSpace(directoryName))
-            {
-                _usbDirectoryName = directoryName;
             }
         }
 

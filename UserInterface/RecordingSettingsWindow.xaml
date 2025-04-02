@@ -1,0 +1,45 @@
+﻿<Window x:Class="UserInterface.RecordingSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="녹화 설정" Height="360" Width="400" 
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!--<TextBlock Grid.Row="0" Text="녹화 설정" FontSize="18" FontWeight="Bold" Margin="0,0,0,15"/>-->
+
+        <!-- 저장 경로 선택 -->
+        <GroupBox Grid.Row="1" Header="저장 경로" Margin="0,0,0,10" Padding="10">
+            <StackPanel>
+                <RadioButton x:Name="rbDesktop" Content="바탕화면" IsChecked="True" Margin="0,0,0,5"/>
+                <RadioButton x:Name="rbUsb" Content="USB 메모리" Margin="0,5,0,0"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- 레이아웃 모드 선택 -->
+        <GroupBox Grid.Row="2" Header="화면 레이아웃" Margin="0,0,0,10" Padding="10">
+            <StackPanel>
+                <RadioButton x:Name="rbVertical" Content="세로 스택 (960x1620)" IsChecked="True" Margin="0,0,0,5"/>
+                <RadioButton x:Name="rbMonitor" Content="모니터 최적화 (1920x1080)" Margin="0,5,0,0"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- 선택된 USB 드라이브 표시 (USB 선택 시만 활성화) -->
+        <GroupBox Grid.Row="3" Header="감지된 USB 드라이브" Margin="0,0,0,10" Padding="10">
+            <ComboBox x:Name="cmbUsbDrives" IsEnabled="{Binding IsChecked, ElementName=rbUsb}" Margin="0,5,0,0"/>
+        </GroupBox>
+
+        <!-- 버튼 영역 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnCancel" Content="취소" Width="80" Margin="0,0,10,0" Click="btnCancel_Click"/>
+            <Button x:Name="btnOk" Content="확인" Width="80" Click="btnOk_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
