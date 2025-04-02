@@ -50,11 +50,16 @@ namespace MultiWebcamApp
 
         private System.Timers.Timer _healthCheckTimer;
 
+        private Multimedia.Timer _mainTimer;
+        private int _isProcessing = 0;
+        //private Task _mainTask;
+
         public MainForm()
         {
             InitializeComponent();
             //InitializeCustomControls();
             InitializeHealthCheck();
+            InitializeMainTimer();
 
             _buffer = new FrameBuffer();
             var webcamSource1 = new WebcamSource(0);
@@ -89,10 +94,10 @@ namespace MultiWebcamApp
 
             // 녹화 상태 표시 타이머
             _recordingStatusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _recordingStatusTimer.Tick += (s, e) => _displayManager._uiDisplay.UpdateRecordingStatus();
+            _recordingStatusTimer.Tick += (s, e) => _displayManager.CallUiDisplayUpdateRecordingStatus();
             _recordingStatusTimer.Start();
 
-            _recordingManager = new RecordingManager(_displayManager._pressureDisplay);
+            _recordingManager = new RecordingManager(_displayManager.PressureDisplay);
             // 녹화 성능 최적화를 위한 설정
             _recordingManager.EnableFrameMixing(true);
             _recordingManager.SetFrameMixingRatio(0.8); // 80% 현재 프레임, 20% 이전 프레임
@@ -105,16 +110,125 @@ namespace MultiWebcamApp
 
             _pressurePadSource.Start();
             _syncManager.Start();
-            StartRendering();
+
+            _mainTimer.Start();
 
             this.WindowState = FormWindowState.Minimized;
         }
 
-        private async void StartRendering()
+        private void InitializeMainTimer()
         {
-            _renderingCts = new CancellationTokenSource();
-            _renderingTask = Task.Run(() => RenderLoop(_renderingCts.Token));
+            _mainTimer = new Multimedia.Timer();
+            _mainTimer.Period = 17;
+            _mainTimer.Resolution = 1;
+            _mainTimer.Mode = TimerMode.Periodic;
+            _mainTimer.Tick += MainWork;
         }
+
+        private void MainWork(object? sender, EventArgs e)
+        {
+            if (Interlocked.Exchange(ref _isProcessing, 1) == 1)
+            {
+                Console.WriteLine("이전 프레임 처리 중 - 건너뜀");
+                return;
+            }
+
+            try
+            {
+                // 1. 캡처 단계: SyncManager를 통해 새 프레임 캡처
+                FrameData frame = null;
+                var msgLower = "";
+                var msgUpper = "";
+                switch (_mode)
+                {
+                    case OperationMode.Idle:
+                        if (_syncManager.TryGetFrame(out frame))
+                        {
+                            msgLower = statusMessage(_buffer.PlayPosition / FPS);
+                        }
+                        break;
+                    case OperationMode.Play:
+                        if (_syncManager.TryGetFrame(out frame))
+                        {
+                            _buffer.Add(frame);
+
+                            int delayFrames = _delaySeconds * (int)FPS;
+                            int playPosition;
+
+                            if (delayFrames >= _buffer.Count)
+                            {
+                                playPosition = 0;
+                                int remainingFrames = delayFrames - _buffer.Count + 1;
+                                int countdownSeconds = (int)(remainingFrames / FPS) + 1;
+                                msgLower = statusMessage(_buffer.Count / FPS);
+                                msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "▶";
+                            }
+                            else
+                            {
+                                playPosition = _buffer.Count - delayFrames - 1;
+                                msgLower = statusMessage(playPosition / FPS);
+                                msgUpper = "●";
+                            }
+
+                            frame = _buffer.GetFrame(playPosition);
+                            _buffer.PlayPosition = playPosition;
+                        }
+                        break;
+                    case OperationMode.Replay:
+                        if (_syncManager.TryGetFrame(out _))
+                        {
+                            frame = _buffer.GetFrame(_buffer.PlayPosition);
+                            if (frame != null)
+                            {
+                                _buffer.PlayPosition = (_buffer.PlayPosition + 1) % _buffer.Count;
+                                if (_buffer.PlayPosition == (_buffer.Count - 1))
+                                {
+                                    PauseButton_Click(this, null);
+                                }
+
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgUpper = "▶";
+                            }
+                        }
+                        break;
+                    case OperationMode.Stop:
+                        if (_syncManager.TryGetFrame(out _))
+                        {
+                            frame = _buffer.GetFrame(_buffer.PlayPosition);
+                            if (frame != null)
+                            {
+                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgUpper = "■";
+                            }
+                        }
+                        break;
+                }
+
+                if (frame != null && !_isClosing && IsHandleCreated)
+                {
+                    UpdateUI(frame, msgLower, msgUpper);
+
+                    if (_recordingManager != null && _recordingManager.IsRecording && _mode == OperationMode.Play)
+                    {
+                        _recordingManager.AddFrame(frame);
+                    }
+                }
+
+                _syncManager.CaptureFrames();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MainWork 처리 중 오류 발생: {ex.Message}");
+            }
+            finally
+            {
+                // 작업 완료 표시
+                Interlocked.Exchange(ref _isProcessing, 0);
+            }
+        }
+
+        // 슬로우 모드용 카운터
+        private int _slowCounter = 0;
 
         private async Task RenderLoop(CancellationToken token)
         {
@@ -502,7 +616,7 @@ namespace MultiWebcamApp
         {
             _isStarted = !_isStarted;
 
-            _displayManager._uiDisplay.SetStartButtonText(_isStarted);
+            _displayManager.UiDisplaySetStartButtonText(_isStarted);
 
             if (_isStarted)
             {
@@ -536,8 +650,8 @@ namespace MultiWebcamApp
                 }
             }
 
-            _displayManager._uiDisplay.SetDelaySliderEnabled(!_isStarted);
-            _displayManager._uiDisplay.SetRecordToggleEnabled(!_isStarted);
+            _displayManager.UiDisplaySetDelaySliderEnabled(!_isStarted);
+            _displayManager.UiDisplaySetRecordToggleEnabled(!_isStarted);
             _buffer.Clear();
             UpdatePlayPauseButton();
         }
@@ -610,7 +724,7 @@ namespace MultiWebcamApp
                 _slowButton.BackColor = _isSlowMode ? System.Drawing.Color.DarkGray : System.Drawing.Color.LightGray;
                 _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
 
-                _displayManager._uiDisplay.SetSlowButtonText(_slowLevel);
+                _displayManager.UiDisplaySetSlowButtonText(_slowLevel);
             }
         }
 
@@ -620,7 +734,7 @@ namespace MultiWebcamApp
 
             _recordButton.Checked = !_recordButton.Checked;
             Console.WriteLine($"Record Status: {_recordButton.Checked}");
-            _displayManager._uiDisplay.SetRecordingState(_recordButton.Checked);
+            _displayManager.UiDisplaySetRecordingState(_recordButton.Checked);
 
             try
             {
@@ -677,7 +791,7 @@ namespace MultiWebcamApp
         private void UpdatePlayPauseButton()
         {
             _pauseButton.IconChar = _isPaused ? IconChar.Play : IconChar.Pause;
-            _displayManager._uiDisplay.SetPlayPauseIcon(_isPaused);
+            _displayManager.UiDisplaySetPlayPauseIcon(_isPaused);
         }
 
         private async void CloseButton_Click(object? sender, EventArgs e)
@@ -692,6 +806,10 @@ namespace MultiWebcamApp
             _isClosing = true;
             Console.WriteLine("Closing application...");
             _closeButton.Enabled = false;
+
+            _mainTimer.Stop();
+            _mainTimer.Dispose();
+            //_mainTask.Wait();
 
             _renderingCts?.Cancel();
             if (_renderingTask != null)

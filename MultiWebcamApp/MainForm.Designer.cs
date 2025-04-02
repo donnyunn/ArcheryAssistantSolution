@@ -44,7 +44,7 @@
             // 
             _closeButton.FlatAppearance.BorderSize = 0;
             _closeButton.FlatStyle = FlatStyle.Flat;
-            _closeButton.Location = new Point(12, 12);
+            _closeButton.Location = new System.Drawing.Point(12, 12);
             _closeButton.Name = "_closeButton";
             _closeButton.Size = new Size(75, 23);
             _closeButton.TabIndex = 0;
@@ -53,7 +53,7 @@
             // 
             // _delayTextbox
             // 
-            _delayTextbox.Location = new Point(93, 2);
+            _delayTextbox.Location = new System.Drawing.Point(93, 2);
             _delayTextbox.Name = "_delayTextbox";
             _delayTextbox.Size = new Size(100, 23);
             _delayTextbox.TabIndex = 1;
@@ -62,7 +62,7 @@
             // 
             _startButton.FlatAppearance.BorderSize = 0;
             _startButton.FlatStyle = FlatStyle.Flat;
-            _startButton.Location = new Point(203, 12);
+            _startButton.Location = new System.Drawing.Point(203, 12);
             _startButton.Name = "_startButton";
             _startButton.Size = new Size(75, 23);
             _startButton.TabIndex = 3;
@@ -71,7 +71,7 @@
             // 
             // _delaySlider
             // 
-            _delaySlider.Location = new Point(93, 31);
+            _delaySlider.Location = new System.Drawing.Point(93, 31);
             _delaySlider.Maximum = 100;
             _delaySlider.MinimumSize = new Size(100, 110);
             _delaySlider.Name = "_delaySlider";
@@ -82,7 +82,7 @@
             // 
             _slowButton.FlatAppearance.BorderSize = 0;
             _slowButton.FlatStyle = FlatStyle.Flat;
-            _slowButton.Location = new Point(527, 12);
+            _slowButton.Location = new System.Drawing.Point(527, 12);
             _slowButton.Name = "_slowButton";
             _slowButton.Size = new Size(75, 23);
             _slowButton.TabIndex = 8;
@@ -94,7 +94,7 @@
             _backwardButton.IconChar = FontAwesome.Sharp.IconChar.Backward;
             _backwardButton.IconColor = Color.Black;
             _backwardButton.IconFont = FontAwesome.Sharp.IconFont.Auto;
-            _backwardButton.Location = new Point(284, 12);
+            _backwardButton.Location = new System.Drawing.Point(284, 12);
             _backwardButton.Name = "_backwardButton";
             _backwardButton.Size = new Size(75, 23);
             _backwardButton.TabIndex = 9;
@@ -106,7 +106,7 @@
             _pauseButton.IconChar = FontAwesome.Sharp.IconChar.Play;
             _pauseButton.IconColor = Color.Black;
             _pauseButton.IconFont = FontAwesome.Sharp.IconFont.Auto;
-            _pauseButton.Location = new Point(365, 12);
+            _pauseButton.Location = new System.Drawing.Point(365, 12);
             _pauseButton.Name = "_pauseButton";
             _pauseButton.Size = new Size(75, 23);
             _pauseButton.TabIndex = 10;
@@ -118,7 +118,7 @@
             _forwardButton.IconChar = FontAwesome.Sharp.IconChar.Forward;
             _forwardButton.IconColor = Color.Black;
             _forwardButton.IconFont = FontAwesome.Sharp.IconFont.Auto;
-            _forwardButton.Location = new Point(446, 12);
+            _forwardButton.Location = new System.Drawing.Point(446, 12);
             _forwardButton.Name = "_forwardButton";
             _forwardButton.Size = new Size(75, 23);
             _forwardButton.TabIndex = 11;
@@ -129,7 +129,7 @@
             // 
             _recordButton.BackColor = Color.Transparent;
             _recordButton.Font = new Font("맑은 고딕", 9F, FontStyle.Regular, GraphicsUnit.Point, 129);
-            _recordButton.Location = new Point(93, 147);
+            _recordButton.Location = new System.Drawing.Point(93, 147);
             _recordButton.Name = "_recordButton";
             _recordButton.OffColor = Color.FromArgb(160, 160, 160);
             _recordButton.Size = new Size(258, 30);

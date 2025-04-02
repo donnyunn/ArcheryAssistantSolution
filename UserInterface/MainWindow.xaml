@@ -163,7 +163,7 @@
                         Minimum="0" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
                         ValueChanged="sliderDelay_ValueChanged" 
                         TickPlacement="BottomRight"
-                        AutoToolTipPlacement="TopLeft" 
+                        AutoToolTipPlacement="BottomRight" 
                         AutoToolTipPrecision="0"
                         Style="{StaticResource LargeThumbSliderStyle}"/>
             </StackPanel>

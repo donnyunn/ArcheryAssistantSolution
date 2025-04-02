@@ -2,12 +2,13 @@
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpDX.Direct3D11;
 
 namespace MultiWebcamApp
 {
     public class SyncManager
     {
-        private readonly IFrameSource[] _sources;
+        private readonly List<IFrameSource> _sources;
         private readonly ConcurrentQueue<FrameData> _frameQueue;
         private readonly int _targetFps = 60;
         private CancellationTokenSource _cts;
@@ -20,71 +21,74 @@ namespace MultiWebcamApp
             {
                 throw new ArgumentNullException("At least two camera sources are required.");
             }
-            _sources = sources;
+            _sources = new List<IFrameSource>(sources);
             _frameQueue = new ConcurrentQueue<FrameData>();
             _buffer = buffer;
+        }
+
+        public void Initialize()
+        {
+            foreach (var source in _sources)
+            {
+                source.Start();
+            }
+        }
+
+        // 한 번의 호출로 모든 소스에서 프레임 캡처
+        public void CaptureFrames()
+        {
+            FrameData frame = new FrameData();
+            frame.Timestamp = DateTime.Now.Ticks;
+
+            try
+            {
+                // 모든 소스에서 프레임 캡처
+                foreach (var source in _sources)
+                {
+                    var frameData = source.CaptureFrame();
+
+                    // 카메라 소스인 경우 헤드/바디 할당 (소스 인덱스 기반)
+                    if (source is WebcamSource ws)
+                    {
+                        if (frameData.WebcamHead != null)
+                            frame.WebcamHead = frameData.WebcamHead;
+
+                        if (frameData.WebcamBody != null)
+                            frame.WebcamBody = frameData.WebcamBody;
+                    }
+
+                    // 압력 센서 소스인 경우 압력 데이터 할당
+                    if (source is PressurePadSource ps && frameData.PressureData != null)
+                    {
+                        frame.PressureData = frameData.PressureData;
+                    }
+                }
+
+                _frameQueue.Enqueue(frame);
+                while (_frameQueue.Count > 5)
+                {
+                    _frameQueue.TryDequeue(out _);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"프레임 캡처 중 오류 발생: {ex.Message}");
+            }
         }
 
         public void Start()
         {
             foreach (var source in _sources) source.Start();
-            _cts = new CancellationTokenSource();
-            _syncTask = Task.Run(() => RunSyncLoop(_cts.Token));
         }
 
         public async Task StopAsync()
         {
-            _cts.Cancel();
-            try
-            {
-                await _syncTask;
-            }
-            catch (TaskCanceledException)
-            {
-                Console.WriteLine("Sync task was canceled as expected.");
-            }
             foreach (var source in _sources) source.Stop();
         }
 
         public bool TryGetFrame(out FrameData frame)
         {
             return _frameQueue.TryDequeue(out frame);
-        }
-
-        private async Task RunSyncLoop(CancellationToken token)
-        {
-            var frameInterval = TimeSpan.FromMilliseconds(1000.0 / _targetFps);
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
-
-            while (!token.IsCancellationRequested)
-            {
-                var startTime = stopwatch.Elapsed;
-
-                // 각 소스에서 최신 프레임 가져오기
-                var frames = new FrameData[_sources.Length];
-                for (int i = 0; i < _sources.Length; i++)
-                {
-                    frames[i] = _sources[i].CaptureFrame();
-                }
-
-                // 동기화된 프레임 데이터 생성
-                var frame = new FrameData
-                {
-                    WebcamHead = frames[0].WebcamHead,
-                    WebcamBody = frames[1].WebcamBody,
-                    PressureData = frames.Length > 2 ? frames[2].PressureData : null,
-                    Timestamp = frames.Min(f => f.Timestamp)
-                };
-
-                _frameQueue.Enqueue(frame);
-
-                // 프레임 간격 유지
-                var elapsed = stopwatch.Elapsed - startTime;
-                var delay = frameInterval - elapsed;
-                if (delay.TotalMilliseconds > 0)
-                    await Task.Delay(delay, token);
-            }
         }
     }
 }

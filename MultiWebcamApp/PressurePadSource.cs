@@ -4,24 +4,33 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using SharpDX.Direct3D11;
 
 namespace MultiWebcamApp
 {
-    public class PressurePadSource : IFrameSource
+    public class PressurePadSource : IFrameSource, IDisposable
     {
         private readonly string[] _portNames = { "COM3", "COM4", "COM5", "COM6" };
         private readonly RJCP.IO.Ports.SerialPortStream[] _ports;
         private readonly ConcurrentQueue<(ushort[] Data, long Timestamp)> _dataQueue;
-        private ushort[] _Lastdata = new ushort[9216];
-        private CancellationTokenSource _cts;
-        private Task _captureTask;
-        private Task[] _requestTasks;
-        private ushort[] _combinedData = new ushort[9216]; // 96x96
-        private bool _isStopped; 
+        private ushort[] _lastData = new ushort[9216]; // 96x96
+        private bool _isStopped;
         private bool _isInitialized;
-        private Calibration _calibration = new Calibration();
+        private bool _isDisposed;
+        private ushort[] _combinedData = new ushort[9216]; // 96x96
+        private readonly Calibration _calibration = new Calibration();
+        private readonly object _portLock = new object();
+        private readonly object _dataLock = new object();
+
+        private Task _readTask;
+        private CancellationTokenSource _readCts;
+        private volatile int _isReading = 0;
+
+        // 자동 리셋 관련 속성
+        private volatile bool _needsReset = false;
+        public bool NeedsReset => _needsReset;
+        public void ResetFlag() => _needsReset = false;
 
         private const int PACKET_SIZE = 4622;
         private const int DATA_OFFSET = 11;
@@ -42,508 +51,466 @@ namespace MultiWebcamApp
             new Point(48, 48)  // COM6: 4사분면 (우측 하단)
         };
 
-        Multimedia.Timer _requestTimer;
-
         public PressurePadSource()
         {
             _ports = new RJCP.IO.Ports.SerialPortStream[_portNames.Length];
             _dataQueue = new ConcurrentQueue<(ushort[], long)>();
-            _cts = new CancellationTokenSource();
+            _readCts = new CancellationTokenSource();
 
             // COM 포트 초기화 시도
             InitializePorts();
-
-            //_requestTimer = new Multimedia.Timer()
-            //{
-            //    Period = 16,
-            //    Resolution = 1,
-            //    Mode = Multimedia.TimerMode.Periodic
-            //};
-            //_requestTimer.Tick += new EventHandler(RequestTimer_Tick);
         }
 
         private void InitializePorts()
         {
-            _isInitialized = false;
-            for (int i = 0; i < _portNames.Length; i++)
+            lock (_portLock)
             {
-                try
+                _isInitialized = false;
+                for (int i = 0; i < _portNames.Length; i++)
                 {
-                    _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                    try
                     {
-                        ReadTimeout = 50,
-                        ReadBufferSize = 16384
-                    };
-                    _ports[i].Open();
-                    _isInitialized = true;
-                    Console.WriteLine($"Opened COM port: {_portNames[i]}");
+                        _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                        {
+                            ReadTimeout = 50,
+                            ReadBufferSize = 16384
+                        };
+                        _ports[i].Open();
+                        _isInitialized = true;
+                        Console.WriteLine($"Opened COM port: {_portNames[i]}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to open COM port {_portNames[i]}: {ex.Message}");
+                        _ports[i] = null;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to open COM port {_portNames[i]}: {ex.Message}");
-                    _ports[i] = null;
-                }
-            }
 
-            if (!_isInitialized)
-            {
-                Console.WriteLine("No pressure pad devices initialized. Running in camera-only mode.");
+                if (!_isInitialized)
+                {
+                    Console.WriteLine("No pressure pad devices initialized. Running in camera-only mode.");
+                }
             }
         }
 
         public FrameData CaptureFrame()
         {
-            if (!_isInitialized) return new FrameData { PressureData = null, Timestamp = DateTime.Now.Ticks };
-            if (_dataQueue.TryDequeue(out var data))
+            FrameData frameData = new FrameData();
+
+            if (!_isInitialized)
+                return new FrameData { PressureData = null, Timestamp = DateTime.Now.Ticks };
+
+            // 1. 큐에서 가장 최근 데이터 가져오기 (없으면 마지막 데이터 사용)
+            lock (_dataLock)
             {
-                Array.Copy(data.Data, 0, _Lastdata, 0, 9216);
-                return new FrameData { PressureData = data.Data, Timestamp = data.Timestamp };
+                if (_dataQueue.TryDequeue(out var data))
+                {
+                    Array.Copy(data.Data, 0, _lastData, 0, 9216);
+                    frameData.PressureData = data.Data;
+                    frameData.Timestamp = data.Timestamp;
+                }
+                else
+                {
+                    // 새 데이터가 없으면 마지막 데이터 사용
+                    frameData.PressureData = _lastData;
+                    frameData.Timestamp = DateTime.Now.Ticks;
+                }
             }
-            return new FrameData {PressureData = _Lastdata, Timestamp = DateTime.Now.Ticks };
+
+            // 2. 백그라운드 태스크가 아직 실행 중이 아니면 시작
+            StartBackgroundReading();
+
+            return frameData;
+        }
+
+        private void StartBackgroundReading()
+        {
+            // 중지 상태면 시작하지 않음
+            if (_isStopped || !_isInitialized)
+                return;
+
+            // 이미 읽기 작업이 실행 중이면 패스
+            if (Interlocked.CompareExchange(ref _isReading, 1, 0) == 1)
+                return;
+
+            // 현재 작업이 실행 중인지 확인
+            if (_readTask != null && !_readTask.IsCompleted)
+            {
+                // 이미 실행 중인 작업이 있으면 기존 작업 취소 후 대기
+                try
+                {
+                    _readCts?.Cancel();
+                    Task.WaitAny(new[] { _readTask }, 500);
+                }
+                catch { }
+            }
+
+            // 새 캔슬레이션 토큰 필요시 생성
+            if (_readCts == null || _readCts.IsCancellationRequested)
+            {
+                _readCts?.Dispose();
+                _readCts = new CancellationTokenSource();
+            }
+
+            // 새로운 태스크 시작
+            _readTask = Task.Run(() => BackgroundReadingLoop(), _readCts.Token);
+        }
+
+        private async Task BackgroundReadingLoop()
+        {
+            try
+            {
+                while (!_isStopped && _isInitialized)
+                {
+                    try
+                    {
+                        // 디바이스에 데이터 요청 및 읽기
+                        await RequestAndReadData();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"압력패드 데이터 읽기 오류: {ex.Message}");
+                        await Task.Delay(100); // 오류 발생 시 잠시 대기
+                    }
+                }
+            }
+            finally
+            {
+                // 읽기 작업 종료 표시
+                Interlocked.Exchange(ref _isReading, 0);
+            }
+        }
+
+        private async Task RequestAndReadData()
+        {
+            // 시작 전에 중지 상태 확인
+            if (_isStopped)
+                return;
+
+            // 활성 포트 목록 - 스냅샷 생성 (동시 접근 방지)
+            RJCP.IO.Ports.SerialPortStream[] activePorts;
+            lock (_portLock)
+            {
+                activePorts = _ports.Where(p => p != null && p.IsOpen).ToArray();
+            }
+
+            if (activePorts.Length == 0) return;
+
+            // 모든 활성 포트에 데이터 요청
+            foreach (var port in activePorts)
+            {
+                try
+                {
+                    if (port.IsOpen)  // 추가 검증
+                    {
+                        port.Write(REQUEST_PATTERN, 0, REQUEST_SIZE);
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // 객체가 이미 폐기됨 - 무시하고 계속 진행
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Request error on port: {ex.Message}");
+                }
+            }
+
+            // 각 포트에서 데이터 읽기
+            if (activePorts.Length == 0) return;
+
+            var tasks = activePorts.Select((port, index) => Task.Run(() =>
+            {
+                try
+                {
+                    if (port.IsOpen)  // 추가 검증
+                    {
+                        return ReadPortData(port, index);
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // 무시
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Task creation error: {ex.Message}");
+                }
+                return false;
+            })).ToArray();
+
+            try
+            {
+                // 모든 포트 데이터 읽기 완료 대기 (짧은 타임아웃 적용)
+                if (tasks.Length > 0)
+                {
+                    var timeoutTask = Task.WhenAll(tasks).TimeoutAfter(150);
+                    if (await timeoutTask)
+                    {
+                        // 모든 포트에서 읽기 성공
+                        lock (_dataLock)
+                        {
+                            _dataQueue.Enqueue(((ushort[])_combinedData.Clone(), DateTime.Now.Ticks));
+
+                            // 큐 크기 제한
+                            while (_dataQueue.Count > 5)
+                            {
+                                _dataQueue.TryDequeue(out _);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (TimeoutException)
+            {
+                // 타임아웃은 정상적인 상황으로 처리
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception during port read: {ex.Message}");
+            }
+        }
+
+        private bool ReadPortData(RJCP.IO.Ports.SerialPortStream port, int portIndex)
+        {
+            if (port == null || !port.IsOpen) return false;
+
+            byte[] buffer = new byte[PACKET_SIZE];
+            int totalBytesRead = 0;
+            var packetStartTime = DateTime.Now;
+
+            try
+            {
+                // 1. 헤더 탐지
+                while (true)
+                {
+                    if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                    {
+                        port.DiscardInBuffer();
+                        return false;
+                    }
+
+                    int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE - totalBytesRead);
+                    if (bytesToRead <= 0)
+                    {
+                        Thread.Sleep(1);
+                        continue;
+                    }
+
+                    int bytesRead = port.Read(buffer, totalBytesRead, bytesToRead);
+                    totalBytesRead += bytesRead;
+
+                    int headerStart = FindHeader(buffer, totalBytesRead);
+                    if (headerStart >= 0)
+                    {
+                        totalBytesRead = totalBytesRead - headerStart;
+                        if (headerStart > 0)
+                            Array.Copy(buffer, headerStart, buffer, 0, totalBytesRead);
+                        break;
+                    }
+                }
+
+                // 2. 데이터 길이 및 나머지 데이터 읽기
+                while (totalBytesRead < PACKET_SIZE)
+                {
+                    if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
+                    {
+                        port.DiscardInBuffer();
+                        return false;
+                    }
+
+                    int bytesToRead = Math.Min(port.BytesToRead, PACKET_SIZE - totalBytesRead);
+                    if (bytesToRead <= 0)
+                    {
+                        Thread.Sleep(1);
+                        continue;
+                    }
+
+                    int bytesRead = port.Read(buffer, totalBytesRead, bytesToRead);
+                    totalBytesRead += bytesRead;
+                }
+
+                // 3. 테일 검증
+                if (!CheckTail(buffer, PACKET_SIZE - 3))
+                {
+                    port.DiscardInBuffer();
+                    return false;
+                }
+
+                // 4. 유효한 패킷 처리
+                port.DiscardInBuffer();
+
+                // 데이터 변환 (바이트 → ushort)
+                ushort[] quadrantData = new ushort[DATA_SIZE / 2];
+                for (int i = 0; i < DATA_SIZE / 2; i++)
+                {
+                    quadrantData[i] = BitConverter.ToUInt16(buffer, DATA_OFFSET + i * 2);
+                }
+
+                // 보정 적용
+                quadrantData = _calibration.Work(quadrantData, portIndex);
+
+                // 사분면 위치 가져오기
+                int portNameIndex = Array.IndexOf(_portNames, port.PortName);
+                if (portNameIndex < 0 || portNameIndex >= StartPositions.Length)
+                {
+                    return false;
+                }
+
+                Point startPos = StartPositions[portNameIndex];
+
+                // 조합 데이터에 적용
+                lock (_combinedData)
+                {
+                    for (int col = 0; col < 48; col++)
+                    {
+                        for (int row = 0; row < 48; row++)
+                        {
+                            int srcIndex = col * 48 + row;
+                            int destRow, destCol;
+
+                            // 사분면별 매핑 조정
+                            switch (portNameIndex)
+                            {
+                                case 0: // 좌측 상단: Y축 대칭
+                                    destRow = (int)startPos.Y + (47 - row);
+                                    destCol = (int)startPos.X + (47 - col);
+                                    break;
+                                case 1: // 좌측 하단: Y축 대칭
+                                    destRow = (int)startPos.Y + (47 - row);
+                                    destCol = (int)startPos.X + col;
+                                    break;
+                                case 2: // 우측 상단: X축 대칭
+                                    destRow = (int)startPos.Y + row;
+                                    destCol = (int)startPos.X + (47 - col);
+                                    break;
+                                case 3: // 우측 하단: 정상
+                                    destRow = (int)startPos.Y + row;
+                                    destCol = (int)startPos.X + col;
+                                    break;
+                                default:
+                                    return false;
+                            }
+
+                            int destIndex = destRow * 96 + destCol;
+                            if (destIndex >= 0 && destIndex < _combinedData.Length)
+                            {
+                                _combinedData[destIndex] = quadrantData[srcIndex];
+                            }
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error reading from port {port.PortName}: {ex.Message}");
+                port.DiscardInBuffer();
+                return false;
+            }
         }
 
         public void Start()
         {
-            if (!_isInitialized || _requestTasks != null) return; // 디바이스 없으면 실행하지 않음
-
-            _cts = new CancellationTokenSource();
+            if (!_isInitialized) return;
             _isStopped = false;
 
-            // 유효한 포트만 대상으로 요청 및 캡처 시작
-            var activePorts = _ports.Where(p => p != null && p.IsOpen).ToArray();
-            //_requestTasks = _ports.Select(port => Task.Run(() => RequestLoop(port, _cts.Token))).ToArray();
-            //_requestTimer.Start();
-            _captureTask = Task.Run(() => CaptureLoop(activePorts, _cts.Token));
+            // 백그라운드 읽기 작업 시작
+            StartBackgroundReading();
         }
 
-        public async void Stop()
+        public void Stop()
         {
-            if (_isStopped || !_isInitialized) return;
             _isStopped = true;
+            _readCts?.Cancel();
 
-            _cts.Cancel();
-            try
-            {
-                //_requestTimer.Stop();
-                //_requestTimer?.Dispose();
-                if (_captureTask != null)
-                    await _captureTask;
-                if (_requestTasks != null)
-                    await Task.WhenAll(_requestTasks);
-                Console.WriteLine("PressurePadSource stopped successfully.");
-            }
-            catch (TaskCanceledException)
-            {
-                Console.WriteLine("Capture and request tasks were canceled as expected.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Stop error: {ex.Message}");
-            }
+            // 작업이 완료될 때까지 대기
+            _readTask?.Wait(500);
 
-            _requestTasks = null;
-            _captureTask = null;
+            _readCts?.Dispose();
+            _readCts = new CancellationTokenSource();
+
+            Interlocked.Exchange(ref _isReading, 0);
         }
 
         public void ResetAllPorts()
         {
             Console.WriteLine("Resetting all pressure pad ports...");
 
-            if (!_isStopped)
-            {
-                Task.Run(() => Stop()).Wait();
-            }
+            // 1. 먼저 실행 중인 모든 작업을 중지하고 완료될 때까지 대기
+            _isStopped = true;
 
-            foreach (var port in _ports.Where(p => p != null))
-            {
-                try
-                {
-                    if (port.IsOpen)
-                    {
-                        port.Close();
-                        Console.WriteLine($"Closed COM port: {port.PortName}");
-                    }
-                    port.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error closing COM port {port.PortName}: {ex.Message}");
-                }
-            }
-
-            Task.Delay(1000).Wait();
-
-            InitializePorts();
-
-            if (_isInitialized)
-            {
-                Start();
-                Console.WriteLine("Pressure pad ports reset and restarted successfully.");
-            }
-            else
-            {
-                Console.WriteLine("Failed to reset pressure pad ports. Continuing in camera-only mode.");
-            }
-        }
-
-        //private void RequestTimer_Tick(object? sender, EventArgs e)
-        //{
-        //    _requestTasks = _ports.Select(port => Task.Run(() => Request(port, _cts.Token))).ToArray();
-        //}
-
-        private async Task Request(RJCP.IO.Ports.SerialPortStream port, CancellationToken token)
-        {
-            if (port.IsOpen)
-            {
-                //lock (port)
-                //{
-                    try
-                    {
-                        await port.WriteAsync(REQUEST_PATTERN, 0, REQUEST_SIZE, token);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Request error on {port.PortName}: {ex.Message}");
-                    }
-            //}
-        }
-        }
-
-        private void RequestLoop(RJCP.IO.Ports.SerialPortStream port, CancellationToken token)
-        {
-            byte[] request = { 0x53, 0x41, 0x33, 0x41, 0x31, 0x35, 0x35, 0x00, 0x00, 0x00, 0x00, 0x46, 0x46, 0x45 };
-            while (!token.IsCancellationRequested)
-            {
-                if (port.IsOpen)
-                {
-                    lock (port)
-                    {
-                        try
-                        {
-                            port.Write(request, 0, request.Length);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Request error on {port.PortName}: {ex.Message}");
-                        }
-                    }
-                }
-                Thread.Sleep(10); // 10ms 간격으로 요청 전송
-            }
-        }
-
-        // CaptureLoop 클래스에 추가할 멤버 변수 및 속성
-        private volatile bool _needsReset = false;
-
-        // 외부에서 재설정 필요 여부를 확인할 수 있는 속성
-        public bool NeedsReset
-        {
-            get { return _needsReset; }
-            private set { _needsReset = value; }
-        }
-
-        // 재설정 플래그를 리셋하는 메서드
-        public void ResetFlag()
-        {
-            _needsReset = false;
-        }
-
-        private async Task CaptureLoop(RJCP.IO.Ports.SerialPortStream[] activePorts, CancellationToken token)
-        {
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
-
-            byte[][] buffers = activePorts.Select(_ => new byte[PACKET_SIZE]).ToArray();
-            ushort[][] quadrantData = activePorts.Select(_ => new ushort[DATA_SIZE / 2]).ToArray();
-
-            // 큰 변경사항 1: 널 체크 추가 및 예외처리 강화
-            _requestTasks = _ports.Select(port =>
-                port != null && port.IsOpen ?
-                    Task.Run(() => Request(port, token), token) :
-                    Task.CompletedTask).ToArray();
-
+            // 캔슬레이션 토큰으로 작업 취소
             try
             {
-                await Task.WhenAll(_requestTasks.Where(t => t != Task.CompletedTask));
+                _readCts?.Cancel();
+
+                // 백그라운드 작업 완료 대기 (더 긴 타임아웃 설정)
+                if (_readTask != null && !_readTask.IsCompleted)
+                {
+                    // 최대 1초 동안 작업 완료 대기
+                    Task.WaitAny(new[] { _readTask }, 1000);
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"초기 Request 작업 중 오류: {ex.Message}");
+                Console.WriteLine($"백그라운드 작업 중지 중 오류: {ex.Message}");
             }
 
-            // 큰 변경사항 2: 안정성 모니터링 추가
-            int consecutiveErrors = 0;
-            DateTime lastSuccessTime = DateTime.Now;
+            // 작업 상태 초기화
+            Interlocked.Exchange(ref _isReading, 0);
 
-            while (!token.IsCancellationRequested)
+            // 2. 이제 포트 처리 진행
+            lock (_portLock)
             {
-                var startTime = stopwatch.ElapsedMilliseconds;
-                bool frameSuccessful = true;
-
-                try
+                foreach (var port in _ports.Where(p => p != null))
                 {
-                    var tasks = activePorts.Select((port, index) => Task.Run(async () =>
-                    {
-                        if (port == null || !port.IsOpen) return false; // null 체크 추가
-
-                        byte[] buffer = buffers[index];
-                        Array.Clear(buffer, 0, buffer.Length);
-                        int totalBytesRead = 0;
-                        var packetStartTime = DateTime.Now;
-
-                        // 헤더 탐지
-                        while (!token.IsCancellationRequested)
-                        {
-                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                            {
-                                port.DiscardInBuffer();
-                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                return false;
-                            }
-
-                            int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE - totalBytesRead);
-                            if (bytesToRead > 0)
-                            {
-                                try
-                                {
-                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                    totalBytesRead += bytesRead;
-
-                                    int headerStart = FindHeader(buffer, totalBytesRead);
-                                    if (headerStart >= 0)
-                                    {
-                                        totalBytesRead = totalBytesRead - headerStart;
-                                        if (headerStart > 0)
-                                            Array.Copy(buffer, headerStart, buffer, 0, totalBytesRead);
-                                        break;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine($"Header read error on {port.PortName}: {ex.Message}");
-                                    port.DiscardInBuffer();
-                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                    return false;
-                                }
-                            }
-                            await Task.Delay(1, token);
-                        }
-
-                        if (totalBytesRead < HEADER_SIZE) return false;
-
-                        // 데이터 길이 읽기
-                        while (totalBytesRead < HEADER_SIZE + 4 && !token.IsCancellationRequested)
-                        {
-                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                            {
-                                port.DiscardInBuffer();
-                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                return false;
-                            }
-
-                            int bytesToRead = Math.Min(port.BytesToRead, HEADER_SIZE + 4 - totalBytesRead);
-                            if (bytesToRead > 0)
-                            {
-                                try
-                                {
-                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                    totalBytesRead += bytesRead;
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine($"Length read error on {port.PortName}: {ex.Message}");
-                                    port.DiscardInBuffer();
-                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                    return false;
-                                }
-                            }
-                            await Task.Delay(1, token);
-                        }
-
-                        try
-                        {
-                            string lengthHex = System.Text.Encoding.ASCII.GetString(buffer, HEADER_SIZE, 4);
-                            int dataLength = Convert.ToInt32(lengthHex, 16);
-                            if (dataLength != DATA_SIZE)
-                            {
-                                port.DiscardInBuffer();
-                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                return false;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Length parse error on {port.PortName}: {ex.Message}");
-                            port.DiscardInBuffer();
-                            try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                            return false;
-                        }
-
-                        // 데이터와 테일 읽기
-                        while (totalBytesRead < PACKET_SIZE && !token.IsCancellationRequested)
-                        {
-                            if ((DateTime.Now - packetStartTime).TotalMilliseconds > TIMEOUT_MS)
-                            {
-                                port.DiscardInBuffer();
-                                try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                return false;
-                            }
-
-                            int bytesToRead = Math.Min(port.BytesToRead, PACKET_SIZE - totalBytesRead);
-                            if (bytesToRead > 0)
-                            {
-                                try
-                                {
-                                    int bytesRead = await port.ReadAsync(buffer, totalBytesRead, bytesToRead, token);
-                                    totalBytesRead += bytesRead;
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine($"Data read error on {port.PortName}: {ex.Message}");
-                                    port.DiscardInBuffer();
-                                    try { _ = Task.Run(() => Request(port, token), token); } catch { }
-                                    return false;
-                                }
-                            }
-                            await Task.Delay(1, token);
-                        }
-
-                        if (totalBytesRead == PACKET_SIZE && CheckTail(buffer, PACKET_SIZE - 3))
-                        {
-                            port.DiscardInBuffer();
-                            try { _ = Task.Run(() => Request(port, token), token); } catch { }
-
-                            for (int i = 0; i < DATA_SIZE / 2; i++)
-                            {
-                                quadrantData[index][i] = BitConverter.ToUInt16(buffer, DATA_OFFSET + i * 2);
-                            }
-
-                            // Calibration 적용
-                            quadrantData[index] = _calibration.Work(quadrantData[index], index);
-
-                            int portIndex = Array.IndexOf(_portNames, port.PortName);
-                            if (portIndex < 0 || portIndex >= StartPositions.Length)
-                            {
-                                Console.WriteLine($"Invalid port index for {port.PortName}");
-                                return false;
-                            }
-
-                            Point startPos = StartPositions[portIndex];
-                            lock (_combinedData)
-                            {
-                                for (int col = 0; col < 48; col++)
-                                {
-                                    for (int row = 0; row < 48; row++)
-                                    {
-                                        int srcIndex = col * 48 + row;
-                                        int destRow, destCol;
-
-                                        // 사분면별 매핑 조정
-                                        switch (portIndex)
-                                        {
-                                            case 0: // 좌측 상단: Y축 대칭
-                                                destRow = (int)startPos.Y + (47 - row);
-                                                destCol = (int)startPos.X + (47 - col);
-                                                break;
-                                            case 1: // 좌측 하단: Y축 대칭
-                                                destRow = (int)startPos.Y + (47 - row);
-                                                destCol = (int)startPos.X + col;
-                                                break;
-                                            case 2: // 우측 상단: X축 대칭
-                                                destRow = (int)startPos.Y + row;
-                                                destCol = (int)startPos.X + (47 - col);
-                                                break;
-                                            case 3: // 우측 하단: 정상
-                                                destRow = (int)startPos.Y + row;
-                                                destCol = (int)startPos.X + col;
-                                                break;
-                                            default:
-                                                return false;
-                                        }
-
-                                        int destIndex = destRow * 96 + destCol;
-                                        if (destIndex >= 0 && destIndex < _combinedData.Length)
-                                        {
-                                            _combinedData[destIndex] = quadrantData[index][srcIndex];
-                                        }
-                                    }
-                                }
-                            }
-                            return true;
-                        }
-                        return false;
-                    }, token)).ToArray();
-
                     try
                     {
-                        var results = await Task.WhenAll(tasks);
-                        if (results.All(success => success))
+                        if (port.IsOpen)
                         {
-                            _dataQueue.Enqueue(((ushort[])_combinedData.Clone(), DateTime.Now.Ticks));
-                            //while (_dataQueue.Count > 5)
-                                //_dataQueue.TryDequeue(out _);
-
-                            lastSuccessTime = DateTime.Now;
-                            consecutiveErrors = 0;
+                            port.Close();
+                            Console.WriteLine($"Closed COM port: {port.PortName}");
                         }
-                        else
-                        {
-                            frameSuccessful = false;
-                            consecutiveErrors++;
-                            // 일부만 로그 출력 (로그 과다 방지)
-                            if (consecutiveErrors % 15 == 1)
-                            {
-                                Console.WriteLine($"일부 포트 데이터 캡처 실패 (연속 오류: {consecutiveErrors})");
-                            }
-                        }
-                    }
-                    catch (TaskCanceledException)
-                    {
-                        Console.WriteLine("Capture tasks canceled.");
-                        return;
+                        port.Dispose();
                     }
                     catch (Exception ex)
                     {
-                        frameSuccessful = false;
-                        consecutiveErrors++;
-                        Console.WriteLine($"Task exception: {ex.Message}");
+                        Console.WriteLine($"Error closing COM port {port.PortName}: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
+
+                // 배열을 초기화하여 이전 포트에 대한 모든 참조 제거
+                Array.Clear(_ports, 0, _ports.Length);
+
+                // 큐 비우기
+                while (_dataQueue.TryDequeue(out _)) { }
+
+                Thread.Sleep(1000); // 포트 안정화 대기
+
+                // 새 포트 초기화
+                InitializePorts();
+
+                _needsReset = false;
+                Console.WriteLine("Pressure pad ports reset completed.");
+            }
+
+            // 초기화 성공 시 작업 재시작 준비
+            if (_isInitialized)
+            {
+                _isStopped = false;
+
+                // 이전 캔슬레이션 토큰 폐기 및 새 토큰 생성
+                if (_readCts != null)
                 {
-                    frameSuccessful = false;
-                    consecutiveErrors++;
-                    Console.WriteLine($"Capture loop error: {ex.Message}");
+                    _readCts.Dispose();
+                    _readCts = new CancellationTokenSource();
                 }
 
-                // 큰 변경사항 3: 자동 복구 메커니즘 추가
-                // 일정 시간 동안 성공적인 프레임이 없으면 루프 종료하고 재시작
-                if (!frameSuccessful && (DateTime.Now - lastSuccessTime).TotalSeconds > 1)
-                {
-                    Console.WriteLine("2초 동안 성공적인 프레임 없음. 캡처 루프 종료하고 재시작...");
-
-                    // 자동 재시작을 위한 이벤트 발생 또는 플래그 설정
-                    // 이 부분은 메인 애플리케이션에서 감지하여 ResetAllPorts를 호출할 수 있도록 함
-                    _needsReset = true;  // 클래스 멤버 변수로 _needsReset 플래그를 추가해야 함
-
-                    // 현재 루프를 깨끗하게 종료
-                    Console.WriteLine("캡처 루프를 종료합니다. 메인 애플리케이션에서 재시작 예정.");
-                    return;  // CaptureLoop 메서드 종료
-                }
-
-                var elapsed = stopwatch.ElapsedMilliseconds - startTime;
-                var delay = 16 - elapsed;
-                if (delay > 0)
-                {
-                    try
-                    {
-                        await Task.Delay((int)delay, token);
-                    }
-                    catch (TaskCanceledException)
-                    {
-                        return;
-                    }
-                }
+                // 새 작업 시작
+                StartBackgroundReading();
             }
         }
 
@@ -574,13 +541,77 @@ namespace MultiWebcamApp
             return true;
         }
 
-        // 프로그램 종료 시 리소스 정리
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_isDisposed) return;
+
+            if (disposing)
+            {
+                Stop();
+
+                foreach (var port in _ports.Where(p => p != null))
+                {
+                    try
+                    {
+                        if (port.IsOpen)
+                        {
+                            port.Close();
+                        }
+                        port.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing port {port.PortName}: {ex.Message}");
+                    }
+                }
+            }
+
+            _isDisposed = true;
+        }
+
         ~PressurePadSource()
         {
-            foreach (var port in _ports.Where(p => p != null && p.IsOpen))
+            Dispose(false);
+        }
+    }
+
+    public struct Point
+    {
+        public int X { get; }
+        public int Y { get; }
+
+        public Point(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    // 확장 메서드: Task 시간 초과 구현
+    public static class TaskExtensions
+    {
+        public static async Task<bool> TimeoutAfter(this Task task, int millisecondsTimeout)
+        {
+            if (task == null) throw new ArgumentNullException(nameof(task));
+
+            using var timeoutCancellationTokenSource = new CancellationTokenSource();
+            var completedTask = await Task.WhenAny(task, Task.Delay(millisecondsTimeout, timeoutCancellationTokenSource.Token));
+
+            if (completedTask == task)
             {
-                port.Close();
-                port.Dispose();
+                timeoutCancellationTokenSource.Cancel();
+                await task;  // 예외 전파
+                return true;
+            }
+            else
+            {
+                throw new TimeoutException("The operation has timed out.");
             }
         }
     }

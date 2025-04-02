@@ -24,6 +24,22 @@ namespace MultiWebcamApp
             }
         }
 
+        public void RemoveOldest()
+        {
+            lock (_frames)
+            {
+                if (_frames.Count > 0)
+                {
+                    // 가장 오래된 프레임(첫 번째 프레임) 제거
+                    _frames.RemoveAt(0);
+
+                    // 재생 위치가 범위를 벗어나지 않도록 조정
+                    if (_playPosition > 0)
+                        _playPosition--;
+                }
+            }
+        }
+
         public FrameData GetFrame(int index)
         {
             lock (_frames)
