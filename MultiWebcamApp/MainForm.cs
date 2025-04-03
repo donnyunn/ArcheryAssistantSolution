@@ -101,6 +101,11 @@ namespace MultiWebcamApp
             _recordingStatusTimer.Start();
 
             recorder = new ScreenRecordingLib.ScreenRecorder();
+
+            recorder.OnStatusMessage += (message) =>
+            {
+                _displayManager.UiDisplaySetStatusMessage(message);
+            };
         }
 
         private void MainForm_Load(object sender, EventArgs e)

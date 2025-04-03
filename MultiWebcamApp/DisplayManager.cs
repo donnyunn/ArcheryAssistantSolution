@@ -248,6 +248,11 @@ namespace MultiWebcamApp
             _uiDisplay.SetPlayPauseIcon(isPaused);
         }
 
+        public void UiDisplaySetStatusMessage(string message)
+        {
+            _uiDisplay.SetStatusMessage(message);
+        }
+
         #region 이벤트 등록 메서드
         public void RegisterPressureDisplayResetEvent(EventHandler handler)
         {

@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace UserInterface
 {
@@ -44,14 +45,25 @@ namespace UserInterface
         // 녹화 상태에 따른 토글 UI 
         private bool _isRecording = false;
 
+        DispatcherTimer _statusEraserTimer;
+
         public MainWindow()
         {
             InitializeComponent();
+            _statusEraserTimer = new DispatcherTimer();
+            _statusEraserTimer.Interval = TimeSpan.FromSeconds(3);
+            _statusEraserTimer.Tick += new EventHandler(statusEraserTimer_Elapsed);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
 
+        }
+
+        private void statusEraserTimer_Elapsed(object sender, EventArgs e)
+        {
+            _statusEraserTimer.Stop();
+            statusMessage.Text = "";
         }
 
         #region 이벤트 핸들러
@@ -228,6 +240,14 @@ namespace UserInterface
                 }
             }
         }
+
+        public void SetStatusMessage(string message)
+        {
+            _statusEraserTimer.Stop();
+            statusMessage.Text = message;
+            _statusEraserTimer.Start();
+        }
+
         #endregion
 
         #region 헬퍼 메서드

@@ -68,6 +68,17 @@ namespace ScreenRecordingLib
         private readonly object _lockObject = new object();
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
+        // 메시지 전달을 위한 이벤트 추가
+        public delegate void MessageEventHandler(string message);
+        public event MessageEventHandler OnStatusMessage;
+
+        // 파일 분할 관련 상수 및 필드
+        private const int FILE_SPLIT_INTERVAL_MINUTES = 1; // 파일 분할 간격(분)
+        private DateTime _recordingStartTime;
+        private DateTime _lastFileSplitTime;
+        private string _currentOutputPath;
+        private int _segmentCounter = 1;
+
         /// <summary>
         /// 초기화 함수: 설정과 캡처할 창 핸들을 설정
         /// </summary>
@@ -125,6 +136,14 @@ namespace ScreenRecordingLib
 
                     try
                     {
+                        // 녹화 시작 시간 기록
+                        _recordingStartTime = DateTime.Now;
+                        _lastFileSplitTime = _recordingStartTime;
+                        _segmentCounter = 1;
+
+                        // 메시지 전송
+                        SendStatusMessage("녹화가 시작되었습니다.");
+
                         // FFmpeg 프로세스 시작
                         StartFFmpegProcess();
 
@@ -143,6 +162,7 @@ namespace ScreenRecordingLib
                     {
                         _isRecording = false;
                         CleanupResources();
+                        SendStatusMessage($"녹화 시작 실패: {ex.Message}");
                         Console.WriteLine($"Failed to start recording: {ex.Message}");
                         throw;
                     }
@@ -164,6 +184,9 @@ namespace ScreenRecordingLib
 
                     try
                     {
+                        // 저장 중 메시지 전송
+                        SendStatusMessage("저장 중입니다...");
+
                         // 캡처 스레드가 종료될 때까지 대기
                         if (_captureThread != null && _captureThread.IsAlive)
                         {
@@ -175,12 +198,17 @@ namespace ScreenRecordingLib
 
                         // FFmpeg 프로세스 종료
                         CloseFFmpegProcess();
+
+                        // 최종 파일 저장 및 복사
+                        SaveRecordingToArchive();
+
                         CleanupResources();
 
                         Console.WriteLine("Recording stopped successfully");
                     }
                     catch (Exception ex)
                     {
+                        SendStatusMessage($"녹화 종료 중 오류: {ex.Message}");
                         Console.WriteLine($"Error stopping recording: {ex.Message}");
                         throw;
                     }
@@ -223,6 +251,12 @@ namespace ScreenRecordingLib
                 {
                     long frameStartTime = _frameTimer.ElapsedMilliseconds;
 
+                    // 시간 확인 및 파일 분할
+                    if ((DateTime.Now - _lastFileSplitTime).TotalMinutes >= FILE_SPLIT_INTERVAL_MINUTES)
+                    {
+                        SplitRecordingFile();
+                    }
+
                     outputCanvas.Clear(SKColors.Black);
 
                     // 각 창 캡처 및 합성
@@ -262,11 +296,6 @@ namespace ScreenRecordingLib
                             SKRect destRect = new SKRect(x, y, x + _settings.Width, y + _settings.Height);
                             outputCanvas.DrawBitmap(windowBitmap, sourceRect, destRect);
                         }
-                        //else
-                        //{
-                        //    // 캡처 실패 시 검은색으로 채우기
-                        //    outputCanvas.DrawRect(x, y, _settings.Width, _settings.Height, new SKPaint { Color = SKColors.Black });
-                        //}
                     }
 
                     // FFmpeg로 프레임 전송
@@ -297,6 +326,7 @@ namespace ScreenRecordingLib
             }
             catch (Exception ex)
             {
+                SendStatusMessage($"녹화 중 오류: {ex.Message}");
                 Console.WriteLine($"Error in capture loop: {ex.Message}");
             }
             finally
@@ -304,6 +334,71 @@ namespace ScreenRecordingLib
                 _frameTimer.Stop();
                 CleanupResources();
             }
+        }
+
+        // 파일 분할 처리 메서드 (새로 추가)
+        private void SplitRecordingFile()
+        {
+            try
+            {
+                // 현재 파일 종료
+                SendStatusMessage("녹화 파일 분할 중...");
+                CloseFFmpegProcess();
+
+                // 완료된 파일 저장
+                SaveRecordingToArchive();
+
+                // 새 파일 시작
+                _segmentCounter++;
+                _lastFileSplitTime = DateTime.Now;
+                StartFFmpegProcess();
+
+                SendStatusMessage($"녹화 계속 진행 중... (세그먼트 {_segmentCounter})");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error splitting recording file: {ex.Message}");
+                SendStatusMessage($"파일 분할 중 오류: {ex.Message}");
+            }
+        }
+
+        // 녹화 파일 보관 처리 (새로 추가)
+        private void SaveRecordingToArchive()
+        {
+            try
+            {
+                if (File.Exists(_currentOutputPath))
+                {
+                    // Recordings 폴더 생성
+                    string baseDir = Path.GetDirectoryName(_currentOutputPath);
+                    string recordingsDir = Path.Combine(baseDir, "Recordings");
+                    Directory.CreateDirectory(recordingsDir);
+
+                    // 파일명 생성 (날짜_시간_세그먼트.mp4)
+                    string timestamp = _lastFileSplitTime.ToString("yyyyMMdd_HHmmss");
+                    string archiveFileName = $"{timestamp}_segment{_segmentCounter}.mp4";
+                    string archivePath = Path.Combine(recordingsDir, archiveFileName);
+
+                    // 파일 복사
+                    File.Copy(_currentOutputPath, archivePath, true);
+
+                    // 메시지 전송
+                    SendStatusMessage($"저장이 완료되었습니다. ({archivePath})");
+                    Console.WriteLine($"Recording saved to: {archivePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving recording to archive: {ex.Message}");
+                SendStatusMessage($"파일 저장 중 오류: {ex.Message}");
+            }
+        }
+
+        // 메시지 전달 메서드 (새로 추가)
+        private void SendStatusMessage(string message)
+        {
+            OnStatusMessage?.Invoke(message);
+            Console.WriteLine($"Status: {message}");
         }
 
         /// <summary>
@@ -409,6 +504,7 @@ namespace ScreenRecordingLib
             try
             {
                 string outputPath = _settings.GetOutputPath();
+                _currentOutputPath = outputPath; // 현재 출력 경로 저장
                 string pipeName = $"screencapture_{Guid.NewGuid().ToString("N")}";
                 string pipeFullPath = $@"\\.\pipe\{pipeName}";
 
