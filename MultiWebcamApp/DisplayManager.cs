@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
+using System.Windows.Interop;
 using static UserInterface.MainWindow;
 
 namespace MultiWebcamApp
@@ -20,6 +21,8 @@ namespace MultiWebcamApp
         // PressureMapViewer 접근 속성 (RecordingManager가 필요로 함)
         public PressureMapViewer.MainWindow PressureDisplay => _pressureDisplay;
 
+        private Window[] wpfWindows;
+
         public DisplayManager()
         {
             try
@@ -28,6 +31,11 @@ namespace MultiWebcamApp
                 _headDisplay = new CameraViewer.MainWindow();
                 _bodyDisplay = new CameraViewer.MainWindow();
                 _pressureDisplay = new PressureMapViewer.MainWindow();
+
+                wpfWindows = new Window[3];
+                wpfWindows[0] = _headDisplay;
+                wpfWindows[1] = _bodyDisplay;
+                wpfWindows[2] = _pressureDisplay;
             }
             catch (Exception ex)
             {
@@ -49,6 +57,17 @@ namespace MultiWebcamApp
             {
                 Console.WriteLine($"디스플레이 표시 중 오류: {ex.Message}");
             }
+        }
+
+        public IntPtr[] GetWindowHandles()
+        {
+            IntPtr[] handles = new IntPtr[3];
+            for (int i = 0; i < 3; i++)
+            {
+                var helper = new WindowInteropHelper(wpfWindows[i]);
+                handles[i] = helper.Handle;
+            }
+            return handles;
         }
 
         public void ConfigureDisplayPositions()

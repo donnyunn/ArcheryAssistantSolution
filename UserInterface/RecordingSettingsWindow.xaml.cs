@@ -69,11 +69,14 @@ namespace UserInterface
         {
             UseDesktop = rbDesktop.IsChecked ?? true;
             UseVerticalLayout = rbVertical.IsChecked ?? true;
-
             if (!UseDesktop && cmbUsbDrives.SelectedIndex >= 0 && cmbUsbDrives.SelectedItem.ToString() != "연결된 USB 드라이브가 없습니다")
             {
                 string selectedDriveInfo = cmbUsbDrives.SelectedItem.ToString();
                 SelectedDrive = selectedDriveInfo.Substring(0, 3); // "D:\" 형식으로 추출
+            }
+            else
+            {
+                SelectedDrive = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + "\\";
             }
 
             DialogResult = true;

@@ -607,13 +607,16 @@ namespace MultiWebcamApp
                     try
                     {
                         if (port.IsOpen) port.Close();
-                        port.Dispose();
-                        Console.WriteLine($"{port.PortName} 닫힘 및 해제 완료");
+                        Console.WriteLine($"{port.PortName} 닫힘 완료");
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"포트 정리 중 오류: {ex.Message}");
                     }
+                }
+                foreach (var port in portsToDispose)
+                {
+                    port.Dispose();
                 }
 
                 // 큐 및 데이터 초기화
@@ -698,6 +701,7 @@ namespace MultiWebcamApp
                             try
                             {
                                 if (port.IsOpen) port.Close();
+                                Task.Delay(10).Wait();
                                 port.Dispose();
                             }
                             catch (Exception ex)

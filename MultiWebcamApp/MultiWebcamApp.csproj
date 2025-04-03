@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CameraViewer\CameraViewer.csproj" />
     <ProjectReference Include="..\PressureMapViewer\PressureMapViewer.csproj" />
+    <ProjectReference Include="..\ScreenRecorder\ScreenRecordingLib.csproj" />
     <ProjectReference Include="..\UserInterface\UserInterface.csproj" />
   </ItemGroup>
 

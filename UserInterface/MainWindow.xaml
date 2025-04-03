@@ -203,20 +203,24 @@
             <!-- Slow 버튼 -->
             <Button x:Name="btnSlow" Content="Slow" Style="{StaticResource CircleButtonStyle}"
                     Click="btnSlow_Click" Margin="10,0"/>
-
+            
+        </StackPanel>
+        
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="30">
             <!-- 녹화 토글 스위치 -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <TextBlock Text="녹화" VerticalAlignment="Center" FontSize="12" Margin="10,0,5,0"/>
                 <Grid>
                     <Border x:Name="recordToggleBorder" Style="{StaticResource ToggleSwitchStyle}" MouseDown="recordToggle_Click">
                         <TextBlock x:Name="recordToggleText" Text="Off  " Foreground="White" 
-                                     FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" 
-                                     Margin="0,0,5,0"/>
+                         FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" 
+                         Margin="0,0,5,0"/>
                     </Border>
                     <Ellipse x:Name="recordToggleKnob" Style="{StaticResource ToggleSwitchKnobStyle}" 
-                                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0" MouseDown="recordToggle_Click"/>
                 </Grid>
             </StackPanel>
+            
         </StackPanel>
     </Grid>
 </Window>
