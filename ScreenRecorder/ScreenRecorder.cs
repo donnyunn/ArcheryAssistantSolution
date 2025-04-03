@@ -19,7 +19,7 @@ namespace ScreenRecordingLib
         public string SelectedDrive { get; set; }
         public int Width { get; set; } = 960;
         public int Height { get; set; } = 540;
-        public int FrameRate { get; set; } = 60;
+        public int FrameRate { get; set; } = 30;
         public string GetOutputPath()
         {
             if (UseDesktop)
@@ -32,7 +32,6 @@ namespace ScreenRecordingLib
 
     public class ScreenRecorder
     {
-        // Win32 API declarations for window capture
         [DllImport("user32.dll")]
         private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
@@ -53,7 +52,6 @@ namespace ScreenRecordingLib
             public int Height => Bottom - Top;
         }
 
-        // Private fields
         private RecordingSettings _settings;
         private bool _isRecording;
         private Thread _captureThread;
@@ -68,20 +66,20 @@ namespace ScreenRecordingLib
         private readonly object _lockObject = new object();
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
-        // 메시지 전달을 위한 이벤트 추가
         public delegate void MessageEventHandler(string message);
         public event MessageEventHandler OnStatusMessage;
 
-        // 파일 분할 관련 상수 및 필드
-        private const int FILE_SPLIT_INTERVAL_MINUTES = 1; // 파일 분할 간격(분)
+        private const int FILE_SPLIT_INTERVAL_MINUTES = 1;
         private DateTime _recordingStartTime;
         private DateTime _lastFileSplitTime;
         private string _currentOutputPath;
         private int _segmentCounter = 1;
 
-        /// <summary>
-        /// 초기화 함수: 설정과 캡처할 창 핸들을 설정
-        /// </summary>
+        private SKBitmap[] _lastSuccessfulFrames;
+        private Dictionary<int, IDXGIOutputDuplication> _outputDuplications = new Dictionary<int, IDXGIOutputDuplication>();
+        private Dictionary<IntPtr, int> _windowToMonitorMap = new Dictionary<IntPtr, int>();
+        private Dictionary<int, RECT> _monitorBounds = new Dictionary<int, RECT>();
+
         public void Initialize(RecordingSettings settings, IntPtr[] windowHandles)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -89,26 +87,90 @@ namespace ScreenRecordingLib
             if (windowHandles.Length == 0) throw new ArgumentException("At least one window handle is required.");
             _isRecording = false;
             _frameTimer = new Stopwatch();
+            _lastSuccessfulFrames = new SKBitmap[windowHandles.Length];
+            // 배열 요소를 빈 SKBitmap으로 초기화
+            for (int i = 0; i < _lastSuccessfulFrames.Length; i++)
+            {
+                _lastSuccessfulFrames[i] = new SKBitmap(1, 1, SKColorType.Bgra8888, SKAlphaType.Premul);
+                _lastSuccessfulFrames[i].Erase(SKColors.Black);
+            }
             Console.WriteLine($"Initialized with: Desktop={_settings.UseDesktop}, Vertical={_settings.UseVerticalLayout}, " +
                               $"Drive={_settings.SelectedDrive}, Resolution={_settings.Width}x{_settings.Height}");
 
-            // DirectX 장치 초기화
             InitializeDirectX();
+            InitializeMonitorMapping();
         }
 
-        /// <summary>
-        /// DirectX 장치 및 컨텍스트 초기화
-        /// </summary>
+        private void InitializeMonitorMapping()
+        {
+            try
+            {
+                using (var dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>())
+                using (var dxgiAdapter = dxgiDevice.GetAdapter())
+                {
+                    for (int i = 0; i < 10; i++)
+                    {
+                        try
+                        {
+                            dxgiAdapter.EnumOutputs((uint)i, out var output);
+                            if (output == null) break;
+
+                            using (output)
+                            {
+                                var desc = output.Description;
+                                _monitorBounds[i] = new RECT
+                                {
+                                    Left = desc.DesktopCoordinates.Left,
+                                    Top = desc.DesktopCoordinates.Top,
+                                    Right = desc.DesktopCoordinates.Right,
+                                    Bottom = desc.DesktopCoordinates.Bottom
+                                };
+                                Console.WriteLine($"Monitor {i}: {desc.DeviceName}, " +
+                                                  $"({desc.DesktopCoordinates.Left},{desc.DesktopCoordinates.Top})-" +
+                                                  $"({desc.DesktopCoordinates.Right},{desc.DesktopCoordinates.Bottom})");
+                            }
+                        }
+                        catch { break; }
+                    }
+
+                    foreach (var hwnd in _windowHandles)
+                    {
+                        DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out var windowRect, Marshal.SizeOf<RECT>());
+                        int centerX = windowRect.Left + (windowRect.Width / 2);
+                        int centerY = windowRect.Top + (windowRect.Height / 2);
+                        _windowToMonitorMap[hwnd] = GetMonitorIndexForPoint(centerX, centerY);
+                        Console.WriteLine($"Window {hwnd} mapped to monitor {_windowToMonitorMap[hwnd]}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing monitor mapping: {ex.Message}");
+            }
+        }
+
+        private int GetMonitorIndexForPoint(int x, int y)
+        {
+            foreach (var monitor in _monitorBounds)
+            {
+                if (x >= monitor.Value.Left && x < monitor.Value.Right &&
+                    y >= monitor.Value.Top && y < monitor.Value.Bottom)
+                {
+                    return monitor.Key;
+                }
+            }
+            return 0;
+        }
+
         private void InitializeDirectX()
         {
             try
             {
-                // D3D11 디바이스 생성
                 var featureLevels = new[] { Vortice.Direct3D.FeatureLevel.Level_11_0 };
                 D3D11.D3D11CreateDevice(
                     null,
                     Vortice.Direct3D.DriverType.Hardware,
-                    Vortice.Direct3D11.DeviceCreationFlags.None,
+                    DeviceCreationFlags.None,
                     featureLevels,
                     out _d3dDevice,
                     out _d3dContext);
@@ -122,9 +184,6 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 녹화 시작 메서드
-        /// </summary>
         public void StartRecording()
         {
             if (!_isRecording)
@@ -136,18 +195,31 @@ namespace ScreenRecordingLib
 
                     try
                     {
-                        // 녹화 시작 시간 기록
+                        // DirectX 리소스가 해제된 경우 재초기화
+                        if (_d3dDevice == null)
+                        {
+                            InitializeDirectX();
+                            InitializeMonitorMapping();
+                        }
+                        
+                        // _lastSuccessfulFrames 재초기화
+                        if (_lastSuccessfulFrames == null || _lastSuccessfulFrames.Length != _windowHandles.Length)
+                        {
+                            _lastSuccessfulFrames = new SKBitmap[_windowHandles.Length];
+                            for (int i = 0; i < _lastSuccessfulFrames.Length; i++)
+                            {
+                                _lastSuccessfulFrames[i] = new SKBitmap(1, 1, SKColorType.Bgra8888, SKAlphaType.Premul);
+                                _lastSuccessfulFrames[i].Erase(SKColors.Black);
+                            }
+                        }
+
                         _recordingStartTime = DateTime.Now;
                         _lastFileSplitTime = _recordingStartTime;
                         _segmentCounter = 1;
 
-                        // 메시지 전송
                         SendStatusMessage("녹화가 시작되었습니다.");
-
-                        // FFmpeg 프로세스 시작
                         StartFFmpegProcess();
 
-                        // 캡처 스레드 시작
                         _captureThread = new Thread(CaptureLoop)
                         {
                             Name = "Screen Capture Thread",
@@ -170,9 +242,6 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 녹화 중지 메서드
-        /// </summary>
         public void StopRecording()
         {
             if (_isRecording)
@@ -184,10 +253,8 @@ namespace ScreenRecordingLib
 
                     try
                     {
-                        // 저장 중 메시지 전송
                         SendStatusMessage("저장 중입니다...");
 
-                        // 캡처 스레드가 종료될 때까지 대기
                         if (_captureThread != null && _captureThread.IsAlive)
                         {
                             if (!_captureThread.Join(3000))
@@ -196,12 +263,8 @@ namespace ScreenRecordingLib
                             }
                         }
 
-                        // FFmpeg 프로세스 종료
                         CloseFFmpegProcess();
-
-                        // 최종 파일 저장 및 복사
                         SaveRecordingToArchive();
-
                         CleanupResources();
 
                         Console.WriteLine("Recording stopped successfully");
@@ -216,18 +279,13 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 메인 캡처 루프
-        /// </summary>
         private void CaptureLoop()
         {
             try
             {
-                // 프레임 간격 계산 (밀리초)
                 double frameIntervalMs = 1000.0 / _settings.FrameRate;
                 _frameTimer.Start();
 
-                // 최종 출력 이미지 준비
                 int outputWidth = _settings.Width;
                 int outputHeight = _settings.Height;
                 if (_settings.UseVerticalLayout && _windowHandles.Length > 1)
@@ -236,8 +294,8 @@ namespace ScreenRecordingLib
                 }
                 else if (!_settings.UseVerticalLayout && _windowHandles.Length > 1)
                 {
-                    outputWidth = _settings.Width * 2; // 가로로 2개 창
-                    outputHeight = _settings.Height * 2; // 세로로 2개 창
+                    outputWidth = _settings.Width * 2;
+                    outputHeight = _settings.Height * 2;
                 }
 
                 using var outputBitmap = new SKBitmap(outputWidth, outputHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
@@ -251,7 +309,6 @@ namespace ScreenRecordingLib
                 {
                     long frameStartTime = _frameTimer.ElapsedMilliseconds;
 
-                    // 시간 확인 및 파일 분할
                     if ((DateTime.Now - _lastFileSplitTime).TotalMinutes >= FILE_SPLIT_INTERVAL_MINUTES)
                     {
                         SplitRecordingFile();
@@ -259,7 +316,6 @@ namespace ScreenRecordingLib
 
                     outputCanvas.Clear(SKColors.Black);
 
-                    // 각 창 캡처 및 합성
                     for (int i = 0; i < Math.Min(_windowHandles.Length, 3); i++)
                     {
                         int x, y;
@@ -272,36 +328,47 @@ namespace ScreenRecordingLib
                         {
                             switch (i)
                             {
-                                case 0: // 좌측 상단
-                                    x = 0;
-                                    y = 0;
-                                    break;
-                                case 1: // 우측 상단
-                                    x = _settings.Width;
-                                    y = 0;
-                                    break;
-                                case 2: // 좌측 하단
-                                    x = 0;
-                                    y = _settings.Height;
-                                    break;
-                                default:
-                                    continue; // 4번째 창은 무시 (우측 하단 비움)
+                                case 0: x = 0; y = 0; break; // 좌측 상단
+                                case 1: x = _settings.Width; y = 0; break; // 우측 상단
+                                case 2: x = 0; y = _settings.Height; break; // 좌측 하단
+                                default: continue;
                             }
                         }
 
-                        using var windowBitmap = CaptureWindow(_windowHandles[i]);
-                        if (windowBitmap != null)
+                        var windowBitmap = CaptureWindow(_windowHandles[i]);
+                        if (windowBitmap != null && !windowBitmap.IsEmpty && windowBitmap.GetPixels() != IntPtr.Zero)
                         {
-                            SKRect sourceRect = new SKRect(0, 0, windowBitmap.Width, windowBitmap.Height);
-                            SKRect destRect = new SKRect(x, y, x + _settings.Width, y + _settings.Height);
-                            outputCanvas.DrawBitmap(windowBitmap, sourceRect, destRect);
+                            try
+                            {
+                                using var resizedBitmap = windowBitmap.Resize(
+                                    new SKImageInfo(_settings.Width, _settings.Height),
+                                    new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None));
+                                if (resizedBitmap != null)
+                                {
+                                    SKRect sourceRect = new SKRect(0, 0, resizedBitmap.Width, resizedBitmap.Height);
+                                    SKRect destRect = new SKRect(x, y, x + _settings.Width, y + _settings.Height);
+                                    outputCanvas.DrawBitmap(resizedBitmap, sourceRect, destRect);
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Resize failed for window {i}.");
+                                    outputCanvas.DrawRect(x, y, _settings.Width, _settings.Height, new SKPaint { Color = SKColors.Black });
+                                }
+                            }
+                            finally
+                            {
+                                windowBitmap.Dispose();
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Window {i} capture invalid or empty.");
+                            outputCanvas.DrawRect(x, y, _settings.Width, _settings.Height, new SKPaint { Color = SKColors.Black });
                         }
                     }
 
-                    // FFmpeg로 프레임 전송
                     SendFrameToFFmpeg(outputBitmap);
 
-                    // FPS 측정
                     frameCount++;
                     if (_frameTimer.ElapsedMilliseconds - lastFpsCheck >= 1000)
                     {
@@ -311,12 +378,15 @@ namespace ScreenRecordingLib
                         Console.WriteLine($"Current FPS: {fps}");
                     }
 
-                    // 프레임 간격 조정
-                    long frameTime = _frameTimer.ElapsedMilliseconds - frameStartTime;
-                    int sleepTime = (int)Math.Max(0, frameIntervalMs - frameTime);
-                    if (sleepTime > 0)
+                    long totalProcessingTime = _frameTimer.ElapsedMilliseconds - frameStartTime;
+                    if (totalProcessingTime > frameIntervalMs)
                     {
-                        Thread.Sleep(sleepTime);
+                        Console.WriteLine($"Warning: Frame processing time ({totalProcessingTime}ms) exceeds target ({frameIntervalMs}ms)");
+                    }
+                    else
+                    {
+                        int sleepTime = (int)(frameIntervalMs - totalProcessingTime);
+                        if (sleepTime > 0) Thread.Sleep(sleepTime);
                     }
                 }
             }
@@ -336,19 +406,14 @@ namespace ScreenRecordingLib
             }
         }
 
-        // 파일 분할 처리 메서드 (새로 추가)
         private void SplitRecordingFile()
         {
             try
             {
-                // 현재 파일 종료
                 SendStatusMessage("녹화 파일 분할 중...");
                 CloseFFmpegProcess();
-
-                // 완료된 파일 저장
                 SaveRecordingToArchive();
 
-                // 새 파일 시작
                 _segmentCounter++;
                 _lastFileSplitTime = DateTime.Now;
                 StartFFmpegProcess();
@@ -362,27 +427,22 @@ namespace ScreenRecordingLib
             }
         }
 
-        // 녹화 파일 보관 처리 (새로 추가)
         private void SaveRecordingToArchive()
         {
             try
             {
                 if (File.Exists(_currentOutputPath))
                 {
-                    // Recordings 폴더 생성
                     string baseDir = Path.GetDirectoryName(_currentOutputPath);
                     string recordingsDir = Path.Combine(baseDir, "Recordings");
                     Directory.CreateDirectory(recordingsDir);
 
-                    // 파일명 생성 (날짜_시간_세그먼트.mp4)
                     string timestamp = _lastFileSplitTime.ToString("yyyyMMdd_HHmmss");
                     string archiveFileName = $"{timestamp}_segment{_segmentCounter}.mp4";
                     string archivePath = Path.Combine(recordingsDir, archiveFileName);
 
-                    // 파일 복사
                     File.Copy(_currentOutputPath, archivePath, true);
 
-                    // 메시지 전송
                     SendStatusMessage($"저장이 완료되었습니다. ({archivePath})");
                     Console.WriteLine($"Recording saved to: {archivePath}");
                 }
@@ -394,92 +454,137 @@ namespace ScreenRecordingLib
             }
         }
 
-        // 메시지 전달 메서드 (새로 추가)
         private void SendStatusMessage(string message)
         {
             OnStatusMessage?.Invoke(message);
             Console.WriteLine($"Status: {message}");
         }
 
-        /// <summary>
-        /// 창 하나를 캡처하는 메서드
-        /// </summary>
         private SKBitmap CaptureWindow(IntPtr hwnd)
         {
             try
             {
-                // 창 크기 얻기
+                if (_d3dDevice == null)
+                {
+                    Console.WriteLine("DirectX device is null. Cannot capture window.");
+                    return new SKBitmap(1, 1, SKColorType.Bgra8888, SKAlphaType.Premul) {};
+                }
+
                 DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT windowRect, Marshal.SizeOf<RECT>());
                 int width = Math.Max(1, windowRect.Width);
                 int height = Math.Max(1, windowRect.Height);
-
-                // SKBitmap 생성
                 var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
 
-                // DXGI를 사용한 캡처
-                IDXGIOutput dxgiOutput;
-                using (var dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>())
-                using (var dxgiAdapter = dxgiDevice.GetAdapter())
+                int monitorIndex = _windowToMonitorMap.TryGetValue(hwnd, out int idx) ? idx : 0;
+
+                if (!_outputDuplications.TryGetValue(monitorIndex, out var deskDupl) || deskDupl == null)
                 {
-                    dxgiAdapter.EnumOutputs(0, out dxgiOutput);
-                }
-                using (dxgiOutput)
-                using (var dxgiOutput1 = dxgiOutput.QueryInterface<IDXGIOutput1>())
-                {
-                    if (_deskDupl == null)
+                    using var dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>();
+                    using var dxgiAdapter = dxgiDevice.GetAdapter();
+                    IDXGIOutput output = null;
+                    try
                     {
-                        _deskDupl = dxgiOutput1.DuplicateOutput(_d3dDevice);
+                        dxgiAdapter.EnumOutputs((uint)monitorIndex, out output);
+                    }
+                    catch
+                    {
+                        dxgiAdapter.EnumOutputs(0, out output);
                     }
 
-                    var result = _deskDupl.AcquireNextFrame(100, out var frameInfo, out var desktopResource);
-                    if (result.Success)
+                    if (output == null)
                     {
-                        using (var texture = desktopResource.QueryInterface<ID3D11Texture2D>())
+                        bitmap.Erase(SKColors.Black);
+                        return bitmap;
+                    }
+
+                    using (output)
+                    using (var output1 = output.QueryInterface<IDXGIOutput1>())
+                    {
+                        try
                         {
-                            var desc = texture.Description;
-                            var stagingDesc = new Texture2DDescription
-                            {
-                                Width = desc.Width,
-                                Height = desc.Height,
-                                MipLevels = 1,
-                                ArraySize = 1,
-                                Format = desc.Format,
-                                SampleDescription = new SampleDescription(1, 0),
-                                Usage = ResourceUsage.Staging,
-                                BindFlags = 0,
-                                CPUAccessFlags = CpuAccessFlags.Read,
-                                MiscFlags = 0
-                            };
+                            deskDupl = output1.DuplicateOutput(_d3dDevice);
+                            _outputDuplications[monitorIndex] = deskDupl;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error creating duplication for monitor {monitorIndex}: {ex.Message}");
+                            bitmap.Erase(SKColors.Black);
+                            return bitmap;
+                        }
+                    }
+                }
 
-                            using (var stagingTexture = _d3dDevice.CreateTexture2D(stagingDesc))
-                            {
-                                _d3dContext.CopyResource(stagingTexture, texture);
-                                var mapped = _d3dContext.Map(stagingTexture, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+                var result = deskDupl.AcquireNextFrame(100, out var frameInfo, out var desktopResource);
+                if (result.Success && desktopResource != null)
+                {
+                    using (desktopResource)
+                    using (var texture = desktopResource.QueryInterface<ID3D11Texture2D>())
+                    {
+                        var desc = texture.Description;
+                        var stagingDesc = new Texture2DDescription
+                        {
+                            Width = desc.Width,
+                            Height = desc.Height,
+                            MipLevels = 1,
+                            ArraySize = 1,
+                            Format = desc.Format,
+                            SampleDescription = new SampleDescription(1, 0),
+                            Usage = ResourceUsage.Staging,
+                            BindFlags = 0,
+                            CPUAccessFlags = CpuAccessFlags.Read,
+                            MiscFlags = 0
+                        };
 
-                                IntPtr sourcePtr = (nint)(mapped.DataPointer + (windowRect.Top * mapped.RowPitch) + (windowRect.Left * 4));
+                        using (var stagingTexture = _d3dDevice.CreateTexture2D(stagingDesc))
+                        {
+                            _d3dContext.CopyResource(stagingTexture, texture);
+                            var mapped = _d3dContext.Map(stagingTexture, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+
+                            int relativeLeft = windowRect.Left - _monitorBounds[monitorIndex].Left;
+                            int relativeTop = windowRect.Top - _monitorBounds[monitorIndex].Top;
+                            relativeLeft = (int)Math.Max(0, Math.Min(relativeLeft, desc.Width - width));
+                            relativeTop = (int)Math.Max(0, Math.Min(relativeTop, desc.Height - height));
+                            int copyWidth = (int)Math.Min(width, desc.Width - relativeLeft);
+                            int copyHeight = (int)Math.Min(height, desc.Height - relativeTop);
+
+                            if (copyWidth > 0 && copyHeight > 0)
+                            {
+                                IntPtr sourcePtr = (nint)(mapped.DataPointer + (relativeTop * mapped.RowPitch) + (relativeLeft * 4));
                                 IntPtr destPtr = bitmap.GetPixels();
 
-                                for (int y = 0; y < height && y + windowRect.Top < desc.Height; y++)
+                                for (int y = 0; y < copyHeight; y++)
                                 {
-                                    int srcOffset = (int)(y * mapped.RowPitch);
-                                    int dstOffset = y * bitmap.RowBytes;
-                                    if (windowRect.Left + width <= desc.Width)
+                                    unsafe
                                     {
-                                        unsafe
-                                        {
-                                            Buffer.MemoryCopy(
-                                                (void*)(sourcePtr + srcOffset),
-                                                (void*)(destPtr + dstOffset),
-                                                bitmap.RowBytes,
-                                                width * 4);
-                                        }
+                                        Buffer.MemoryCopy(
+                                            (void*)(sourcePtr + y * mapped.RowPitch),
+                                            (void*)(destPtr + y * bitmap.RowBytes),
+                                            Math.Min(bitmap.RowBytes, copyWidth * 4),
+                                            Math.Min(copyWidth * 4, mapped.RowPitch));
                                     }
                                 }
+                            }
 
-                                _d3dContext.Unmap(stagingTexture, 0);
+                            _d3dContext.Unmap(stagingTexture, 0);
+
+                            int handleIndex = Array.IndexOf(_windowHandles, hwnd);
+                            if (_lastSuccessfulFrames != null && handleIndex >= 0 && handleIndex < _lastSuccessfulFrames.Length)
+                            {
+                                _lastSuccessfulFrames[handleIndex]?.Dispose();
+                                _lastSuccessfulFrames[handleIndex] = bitmap.Copy();
                             }
                         }
-                        _deskDupl.ReleaseFrame();
+                    }
+                    deskDupl.ReleaseFrame();
+                }
+                else
+                {
+                    int handleIndex = Array.IndexOf(_windowHandles, hwnd);
+                    if (_lastSuccessfulFrames != null && handleIndex >= 0 && handleIndex < _lastSuccessfulFrames.Length && _lastSuccessfulFrames[handleIndex] != null)
+                    {
+                        using var canvas = new SKCanvas(bitmap);
+                        canvas.Clear(SKColors.Black);
+                        canvas.DrawBitmap(_lastSuccessfulFrames[handleIndex], 0, 0);
                     }
                     else
                     {
@@ -487,28 +592,29 @@ namespace ScreenRecordingLib
                     }
                 }
 
-                return bitmap;
+                return bitmap; // 원본 반환, 축소는 CaptureLoop에서 처리
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error capturing window: {ex.Message}");
-                return null; // 실패 시 null 반환
+                int handleIndex = Array.IndexOf(_windowHandles, hwnd);
+                if (_lastSuccessfulFrames != null && handleIndex >= 0 && handleIndex < _lastSuccessfulFrames.Length && _lastSuccessfulFrames[handleIndex] != null)
+                {
+                    return _lastSuccessfulFrames[handleIndex].Copy();
+                }
+                return new SKBitmap(1, 1, SKColorType.Bgra8888, SKAlphaType.Premul) {};
             }
         }
 
-        /// <summary>
-        /// FFmpeg 프로세스 시작
-        /// </summary>
         private void StartFFmpegProcess()
         {
             try
             {
                 string outputPath = _settings.GetOutputPath();
-                _currentOutputPath = outputPath; // 현재 출력 경로 저장
+                _currentOutputPath = outputPath;
                 string pipeName = $"screencapture_{Guid.NewGuid().ToString("N")}";
                 string pipeFullPath = $@"\\.\pipe\{pipeName}";
 
-                // 파이프 서버 생성
                 _pipeServer = new NamedPipeServerStream(
                     pipeName,
                     PipeDirection.Out,
@@ -516,27 +622,25 @@ namespace ScreenRecordingLib
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous,
                     0,
-                    1024 * 1024 * 10); // 10MB 버퍼
+                    1024 * 1024 * 20);
 
-                // FFmpeg 프로세스 시작
                 int width = _settings.Width;
                 int height = _settings.Height;
-
                 if (_settings.UseVerticalLayout && _windowHandles.Length > 1)
                 {
                     height = _settings.Height * _windowHandles.Length;
                 }
                 else if (!_settings.UseVerticalLayout && _windowHandles.Length > 1)
                 {
-                    //width = _settings.Width * _windowHandles.Length;
                     width = _settings.Width * 2;
                     height = _settings.Height * 2;
                 }
 
+                // h264_amf 설정 수정
                 string ffmpegArgs = $"-f rawvideo -pixel_format bgra -video_size {width}x{height} " +
                                     $"-framerate {_settings.FrameRate} -i {pipeFullPath} " +
-                                    $"-c:v libx264 -preset ultrafast -crf 20 -pix_fmt yuv420p " +
-                                    $"-y \"{outputPath}\"";
+                                    $"-c:v h264_amf -usage lowlatency -quality balanced -rc cbr -b:v 4M " +
+                                    $"-pix_fmt yuv420p -y \"{_currentOutputPath}\"";
 
                 _ffmpegProcess = new Process
                 {
@@ -566,7 +670,6 @@ namespace ScreenRecordingLib
                 _ffmpegProcess.BeginErrorReadLine();
                 _ffmpegProcess.BeginOutputReadLine();
 
-                // FFmpeg가 파이프에 연결될 때까지 대기
                 _pipeServer.WaitForConnection();
                 _pipeWriter = new BinaryWriter(_pipeServer);
 
@@ -580,39 +683,48 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 프레임을 FFmpeg로 전송
-        /// </summary>
         private void SendFrameToFFmpeg(SKBitmap bitmap)
         {
             if (_pipeWriter != null && _pipeServer != null && _pipeServer.IsConnected)
             {
                 try
                 {
-                    // 비트맵 데이터를 바이트 배열로 가져오기
                     IntPtr pixelsPtr = bitmap.GetPixels();
-                    byte[] pixelData = new byte[bitmap.RowBytes * bitmap.Height];
-                    Marshal.Copy(pixelsPtr, pixelData, 0, pixelData.Length);
-
-                    // 파이프에 쓰기
-                    _pipeWriter.Write(pixelData);
-                    _pipeWriter.Flush();
+                    if (pixelsPtr != IntPtr.Zero) // 유효성 검사
+                    {
+                        byte[] pixelData = new byte[bitmap.RowBytes * bitmap.Height];
+                        Marshal.Copy(pixelsPtr, pixelData, 0, pixelData.Length);
+                        _pipeWriter.Write(pixelData);
+                        _pipeWriter.Flush();
+                    }
+                    else
+                    {
+                        Console.WriteLine("Invalid bitmap pixels pointer.");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error sending frame to FFmpeg: {ex.Message}");
+                    if (!_pipeServer.IsConnected)
+                    {
+                        try
+                        {
+                            _pipeServer.Close();
+                            StartFFmpegProcess();
+                        }
+                        catch (Exception retryEx)
+                        {
+                            Console.WriteLine($"Failed to restart FFmpeg: {retryEx.Message}");
+                        }
+                    }
                 }
             }
         }
 
-        /// <summary>
-        /// FFmpeg 프로세스 종료
-        /// </summary>
         private void CloseFFmpegProcess()
         {
             try
             {
-                // 파이프 닫기
                 if (_pipeWriter != null)
                 {
                     _pipeWriter.Dispose();
@@ -629,13 +741,11 @@ namespace ScreenRecordingLib
                     _pipeServer = null;
                 }
 
-                // FFmpeg 프로세스 종료
                 if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
                 {
-                    // 정상 종료 시도
                     if (!_ffmpegProcess.WaitForExit(2000))
                     {
-                        _ffmpegProcess.Kill(); // 응답이 없으면 강제 종료
+                        _ffmpegProcess.Kill();
                     }
                     _ffmpegProcess.Dispose();
                     _ffmpegProcess = null;
@@ -647,14 +757,38 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 리소스 정리
-        /// </summary>
         private void CleanupResources()
         {
             try
             {
-                // DirectX 리소스 해제
+                // OutputDuplications 해제
+                foreach (var dupl in _outputDuplications.Values)
+                {
+                    dupl?.Dispose();
+                }
+                _outputDuplications.Clear();
+
+                // _lastSuccessfulFrames 해제
+                if (_lastSuccessfulFrames != null)
+                {
+                    for (int i = 0; i < _lastSuccessfulFrames.Length; i++)
+                    {
+                        if (_lastSuccessfulFrames[i] != null)
+                        {
+                            try
+                            {
+                                _lastSuccessfulFrames[i].Dispose();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error disposing frame {i}: {ex.Message}");
+                            }
+                            _lastSuccessfulFrames[i] = null;
+                        }
+                    }
+                    _lastSuccessfulFrames = null;
+                }
+
                 _deskDupl?.Dispose();
                 _deskDupl = null;
 
@@ -670,9 +804,6 @@ namespace ScreenRecordingLib
             }
         }
 
-        /// <summary>
-        /// 현재 녹화 중인지 여부 확인
-        /// </summary>
         public bool IsRecording => _isRecording;
     }
 }

@@ -17,6 +17,7 @@ using System.Windows.Media;
 using System.Timers;
 using System.Windows;
 using static UserInterface.MainWindow;
+using System.Windows.Threading;
 
 namespace MultiWebcamApp
 {
@@ -522,10 +523,19 @@ namespace MultiWebcamApp
                 _buffer.Clear();
 
                 // 녹화 버튼이 체크되어 있으면 녹화 시작
-                recorder.StartRecording();
+                if (_isRecording)
+                {
+                    recorder.StartRecording();
+                }
             }
             else
             {
+                // 녹화 중이면 녹화 중지
+                if (_isRecording)
+                {
+                    recorder.StopRecording();
+                }
+
                 _mode = OperationMode.Idle;
                 _startButton.Text = "시작";
                 _isPaused = true;
@@ -533,11 +543,7 @@ namespace MultiWebcamApp
                 _recordButton.Enabled = true;
                 _buffer.Clear();
                 _pressurePadSource.ResetAllPorts();
-
-                // 녹화 중이면 녹화 중지
-                recorder.StopRecording();
             }
-
             _displayManager.UiDisplaySetDelaySliderEnabled(!_isStarted);
             _displayManager.UiDisplaySetRecordToggleEnabled(!_isStarted);
             _buffer.Clear();
