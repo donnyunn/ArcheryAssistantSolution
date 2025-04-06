@@ -157,7 +157,7 @@ namespace MultiWebcamApp
                 try
                 {
                     // 오류 카운터 확인 (각 WorkTask 사이클 시작 시)
-                    CheckErrorThresholds();
+                    //CheckErrorThresholds();
 
                     // CaptureFrame에서 신호가 올 때까지 대기
                     _workSignal.WaitOne();

@@ -47,6 +47,10 @@ namespace PressureMapViewer
         private double leftForefootPercent = 0, leftHeelPercent = 0;
         private double rightForefootPercent = 0, rightHeelPercent = 0;
 
+        // 가이드라인
+        private Line leftGuideLine;
+        private Line rightGuideLine;
+
         // 차트
         private const int MAX_CHART_POINTS = 200;
         private Queue<Point> forefootHeelData = new Queue<Point>(MAX_CHART_POINTS);
@@ -77,6 +81,7 @@ namespace PressureMapViewer
             InitializeHeatmapPalette();
             InitializeCOPIndicator();
             InitializeCharts();
+            InitializeFootOutlineGuides();
         }
         
         public void UpdatePressureData(ushort[] data, string statusText = "")
@@ -95,9 +100,11 @@ namespace PressureMapViewer
                 _frameCount = 0;
                 _lastFpsCheck = DateTime.Now;
             }
+
             Update2D(data);
             UpdateCenterOfPressure(data);
             UpdateBalanceGauges(data);
+            UpdateFootOutlineGuides(data);
 
             _chartUpdateCounter++;
             if (_chartUpdateCounter >= CHART_UPDATE_FREQUENCY)
@@ -176,6 +183,34 @@ namespace PressureMapViewer
             };
             copCanvas.Width = HeatmapImage.ActualWidth;
             copCanvas.Height = HeatmapImage.ActualHeight;
+        }
+
+        private void InitializeFootOutlineGuides()
+        {
+            leftGuideLine = new Line
+            {
+                Stroke = Brushes.Blue,
+                StrokeThickness = 2,
+                Tag = "LeftGuide",
+                Visibility = Visibility.Hidden,
+            };
+            leftGuideLine.X1 = leftGuideLine.X2 = 0;
+            leftGuideLine.Y1 = leftGuideLine.Y2 = 0;
+            rightGuideLine = new Line
+            {
+                Stroke = Brushes.Blue,
+                StrokeThickness = 2,
+                Tag = "RightGuide",
+                Visibility = Visibility.Hidden,
+            };
+
+            // 기존 copCanvas 재사용
+            Canvas copCanvas = (HeatmapImage.Parent as Grid).Children.OfType<Canvas>().FirstOrDefault();
+            if (copCanvas != null)
+            {
+                copCanvas.Children.Add(leftGuideLine);
+                copCanvas.Children.Add(rightGuideLine);
+            }
         }
 
         private void InitializeCharts()
@@ -437,6 +472,66 @@ namespace PressureMapViewer
             Color rightFootColor = Math.Abs(rightPercent - 50) <= 5 ? Colors.DodgerBlue : (rightPercent > 55 ? Colors.DodgerBlue : Colors.RoyalBlue.ChangeBrightness(0.8));
             ForefootGauge.Fill = new SolidColorBrush(leftFootColor);
             HeelGauge.Fill = new SolidColorBrush(rightFootColor);
+        }
+
+        private void UpdateFootOutlineGuides(ushort[] data)
+        {
+            // 발의 경계를 저장할 변수
+            int leftMinX = SENSOR_SIZE, leftMinY = SENSOR_SIZE, leftMaxY = 0;
+            int rightMaxX = 0, rightMinY = SENSOR_SIZE, rightMaxY = 0;
+            int centerX = SENSOR_SIZE / 2;
+            double totalPressure = 0; 
+            bool hasValidData = false;
+            // 총 압력 및 경계 탐지
+            for (int y = 0; y < SENSOR_SIZE; y++)
+            {
+                for (int x = 0; x < SENSOR_SIZE; x++)
+                {
+                    double pressure = data[y * SENSOR_SIZE + x];
+                    totalPressure += pressure;
+
+                    if (pressure >= 5) // UpdateCenterOfPressure와 동일한 임계값 사용
+                    {
+                        hasValidData = true;
+                        if (x < centerX) // 왼발
+                        {
+                            leftMinX = Math.Min(leftMinX, x);
+                            leftMinY = Math.Min(leftMinY, y);
+                            leftMaxY = Math.Max(leftMaxY, y);
+                        }
+                        else // 오른발
+                        {
+                            rightMaxX = Math.Max(rightMaxX, x);
+                            rightMinY = Math.Min(rightMinY, y);
+                            rightMaxY = Math.Max(rightMaxY, y);
+                        }
+                    }
+                }
+            }
+
+            // 압력이 충분하지 않으면 라인 숨김
+            if (totalPressure < 500 || !hasValidData)
+            {
+                leftGuideLine.Visibility = Visibility.Hidden;
+                rightGuideLine.Visibility = Visibility.Hidden;
+                return;
+            }
+
+            // 스케일링 계산
+            double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
+            double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
+
+            // 왼발 가이드 선 업데이트
+            leftGuideLine.X1 = leftGuideLine.X2 = leftMinX * scaleX;
+            leftGuideLine.Y1 = leftMinY * scaleY;
+            leftGuideLine.Y2 = leftMaxY * scaleY;
+            leftGuideLine.Visibility = Visibility.Visible;
+
+            // 오른발 가이드 선 업데이트
+            rightGuideLine.X1 = rightGuideLine.X2 = rightMaxX * scaleX + scaleX;
+            rightGuideLine.Y1 = rightMinY * scaleY;
+            rightGuideLine.Y2 = rightMaxY * scaleY;
+            rightGuideLine.Visibility = Visibility.Visible;
         }
 
         private void UpdateCharts()

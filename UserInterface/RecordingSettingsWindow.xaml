@@ -37,9 +37,9 @@
         </GroupBox>
 
         <!-- 버튼 영역 -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="btnCancel" Content="취소" Width="80" Margin="0,0,10,0" Click="btnCancel_Click"/>
-            <Button x:Name="btnOk" Content="확인" Width="80" Click="btnOk_Click"/>
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Left">
+            <Button x:Name="btnOk" Content="확인" Width="80" Margin="10,0,10,0" Click="btnOk_Click"/>
+            <Button x:Name="btnCancel" Content="취소" Width="80" Margin="10,0,10,0" Click="btnCancel_Click"/>
         </StackPanel>
     </Grid>
 </Window>
