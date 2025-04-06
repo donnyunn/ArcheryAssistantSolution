@@ -434,7 +434,7 @@
                     <Grid Grid.Row="4">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="170"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="350"/>
                             </Grid.ColumnDefinitions>
@@ -445,6 +445,20 @@
                                        Foreground="White"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" Margin="10,10,30,10"
+                                      SelectedIndex="4"
+                                      FontSize="24"
+                                      FontWeight="Bold"
+                                      HorizontalContentAlignment="Center"
+                                      VerticalContentAlignment="Center"
+                                      x:Name="MaxColorCombobox"
+                                      SelectionChanged="MaxColorCombobox_SelectionChanged">
+                                <ComboBoxItem>64 kpa</ComboBoxItem>
+                                <ComboBoxItem>128 kpa</ComboBoxItem>
+                                <ComboBoxItem>256 kpa</ComboBoxItem>
+                                <ComboBoxItem>512 kpa</ComboBoxItem>
+                                <ComboBoxItem>1024 kpa</ComboBoxItem>
+                            </ComboBox>
                         </Grid>
                     </Grid>
                 </Grid>
@@ -463,6 +477,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- 제목 -->
@@ -475,11 +490,11 @@
 
                     <!-- 무게 표시 -->
                     <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
-                        <TextBlock Text="추정 무게: " 
+                        <TextBlock Text="Total: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
                                    Foreground="#CCCCCC"/>
-                        <TextBlock x:Name="WeightValueText" 
+                        <TextBlock x:Name="TotalPressureText" 
                                    Text="측정 대기 중" 
                                    FontSize="20" 
                                    FontWeight="Bold" 
@@ -487,35 +502,6 @@
                     </StackPanel>
 
                     <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
-                        <TextBlock Text="측정 압력: " 
-                                   FontSize="20" 
-                                   FontWeight="Bold" 
-                                   Foreground="#CCCCCC"/>
-                        <TextBlock x:Name="ActiveCellsText" 
-                                   Text="-" 
-                                   FontSize="20" 
-                                   Foreground="#AACCFF"/>
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="0" Grid.Column="1"
-                               Text="장치 정보" 
-                               FontSize="20"
-                               FontWeight="Bold" 
-                               Foreground="White" 
-                               Margin="15,5,5,10"/>
-
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
-                        <TextBlock Text=":" 
-                                   FontSize="20" 
-                                   FontWeight="Bold" 
-                                   Foreground="#CCCCCC"/>
-                        <TextBlock x:Name="StatusText" 
-                                   Text="-" 
-                                   FontSize="20"
-                                   Foreground="#AACCFF"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
                         <TextBlock Text="FPS: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
@@ -526,13 +512,48 @@
                                    Foreground="#AACCFF"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="0" Grid.Column="2"
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               Text="" 
+                               FontSize="20"
+                               FontWeight="Bold" 
+                               Foreground="White" 
+                               Margin="15,5,5,10"/>
+
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text="L: " 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="LeftPressureText" 
+                                   Text="-" 
+                                   FontSize="20"
+                                   Foreground="#00AAFF"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               x:Name="StatusText" 
+                               Text="-" 
+                               FontSize="20"
+                               Foreground="#AACCFF"/>
+
+                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Margin="15,5,5,5">
+                        <TextBlock Text="R: " 
+                                   FontSize="20" 
+                                   FontWeight="Bold" 
+                                   Foreground="#CCCCCC"/>
+                        <TextBlock x:Name="RightPressureText" 
+                                   Text="-" 
+                                   FontSize="20"
+                                   Foreground="#00AAFF"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="0" Grid.Column="3"
                                Text="사용자 입력" 
                                FontSize="20"
                                FontWeight="Bold" 
                                Foreground="White" 
                                Margin="15,5,5,10"/>
-                    <StackPanel Grid.Row="1" Grid.Column="2">
+                    <StackPanel Grid.Row="1" Grid.Column="3">
                         <Button x:Name="ResetPortsButton" Content="장치 재연결" Width="100" Height="30"
                                 FontSize="14" FontWeight="Bold"
                                 HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,10,10"

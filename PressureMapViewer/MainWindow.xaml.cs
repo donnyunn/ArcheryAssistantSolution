@@ -84,7 +84,7 @@ namespace PressureMapViewer
         {
             InitializeComponent();
             InitializeRendering();
-            InitializeHeatmapPalette();
+            InitializeHeatmapPalette(1024);
             InitializeCOPIndicator();
             InitializeCharts();
             InitializeFootOutlineGuides();
@@ -136,6 +136,33 @@ namespace PressureMapViewer
                 PixelFormats.Bgr32,
                 null);
             HeatmapImage.Source = heatmapBitmap;
+        }
+
+        private void InitializeHeatmapPalette(int maxValue)
+        {
+            maxValue = Math.Clamp(maxValue, 1, heatmapPalette.Length);
+
+            Color maxColor = GetHeatmapColor(1f);
+
+            for (int i = 0; i < heatmapPalette.Length; i++)
+            {
+                if (i < maxValue)
+                {
+                    float value = (float)i / (maxValue - 1);
+                    heatmapPalette[i] = GetHeatmapColor(value);
+                }
+                else
+                {
+                    heatmapPalette[i] = maxColor;
+                }
+            }
+
+            precomputedColors = new int[heatmapPalette.Length];
+            for (int i = 0; i < heatmapPalette.Length; i++)
+            {
+                Color color = heatmapPalette[i];
+                precomputedColors[i] = (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
+            }
         }
 
         private void InitializeHeatmapPalette()
@@ -659,24 +686,47 @@ namespace PressureMapViewer
 
         private void EstimateWeight(ushort[] data)
         {
-            double totalForce = 0, totalPressure = 0, totalActiveCells = 0;
-            const double CELL_SIZE = 0.0055, CELL_AREA = CELL_SIZE * CELL_SIZE, GRAVITY = 9.81, PRESSURE_SCALING_FACTOR = 1000.0;
+            //double totalForce = 0, totalPressure = 0, totalActiveCells = 0;
+            double totalPressure = 0, leftPressure = 0, rightPressure = 0, totalActiveCells = 0;
+            //const double CELL_SIZE = 0.0055, CELL_AREA = CELL_SIZE * CELL_SIZE, GRAVITY = 9.81, PRESSURE_SCALING_FACTOR = 1000.0;
 
-            for (int i = 0; i < data.Length; i++)
+            for (int y = 0; y < SENSOR_SIZE; y++)
             {
-                double pressure = data[i];
-                if (pressure > WEIGHT_THRESHOLD)
+                for (int x = 0; x < SENSOR_SIZE; x++)
                 {
-                    double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR;
-                    totalForce += force;
-                    totalActiveCells++;
-                    totalPressure += pressure;
+                    double pressure = data[y * SENSOR_SIZE + x];
+                    if (pressure > WEIGHT_THRESHOLD)
+                    {
+                        totalActiveCells++;
+                        totalPressure += pressure;
+                        if (x < 48)
+                            leftPressure += pressure;
+                        else
+                            rightPressure += pressure;
+                    }
                 }
             }
 
-            double estimatedWeight = totalForce / GRAVITY;
-            WeightValueText.Text = totalActiveCells < 1 ? "- kg" : $"{Math.Round(estimatedWeight, 1)} kg";
-            ActiveCellsText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
+            TotalPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
+            LeftPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(leftPressure)} kpa";
+            RightPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(rightPressure)} kpa";
+
+
+            //for (int i = 0; i < data.Length; i++)
+            //{
+            //    double pressure = data[i];
+            //    if (pressure > WEIGHT_THRESHOLD)
+            //    {
+            //        double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR;
+            //        totalForce += force;
+            //        totalActiveCells++;
+            //        totalPressure += pressure;
+            //    }
+            //}
+
+            //double estimatedWeight = totalForce / GRAVITY;
+            //WeightValueText.Text = totalActiveCells < 1 ? "- kg" : $"{Math.Round(estimatedWeight, 1)} kg";
+            //ActiveCellsText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
         }
 
         private Color GetHeatmapColor(float value)
@@ -860,6 +910,30 @@ namespace PressureMapViewer
             AuxiliaryCircle30perButton.Background = Brushes.LightGray;
             ACScale = 0.2;
             if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void MaxColorCombobox_SelectionChanged(object sender, RoutedEventArgs e)
+        {
+            int maxValue = 1024;
+            switch (MaxColorCombobox.SelectedIndex)
+            {
+                case 0:
+                    maxValue = 64;
+                    break;
+                case 1:
+                    maxValue = 128;
+                    break;
+                case 2:
+                    maxValue = 256;
+                    break;
+                case 3:
+                    maxValue = 512;
+                    break;
+                case 4:
+                    maxValue = 1024;
+                    break;
+            }
+            InitializeHeatmapPalette(maxValue);
         }
 
         private void AuxiliaryCircle30perButton_Click(object sender, RoutedEventArgs e)
