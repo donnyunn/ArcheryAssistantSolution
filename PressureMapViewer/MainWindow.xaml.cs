@@ -40,6 +40,7 @@ namespace PressureMapViewer
         private Queue<Point> copHistory = new Queue<Point>(100);
         private Polyline copTrajectory;
         private const double TRAJECTORY_OPACITY = 0.6;
+        private double copSensitivity = 1.0;
 
         // 밸런스 게이지
         private const double WEIGHT_THRESHOLD = 1.0;
@@ -50,6 +51,10 @@ namespace PressureMapViewer
         // 가이드라인
         private Line leftGuideLine;
         private Line rightGuideLine;
+        // 보조원
+        private Ellipse AuxiliaryCircle;
+        private double ACX, ACY;
+        private double ACScale;
 
         // 차트
         private const int MAX_CHART_POINTS = 200;
@@ -60,6 +65,7 @@ namespace PressureMapViewer
         private const int CHART_UPDATE_FREQUENCY = 4;
         private int _weightUpdateCounter = 0;
         private const int WEIGHT_UPDATE_FREQUENCY = 30;
+
         // 가로선 추가
         private Line _forefootHeelLastValueLine;
         private Line _leftPressureLastValueLine;
@@ -154,8 +160,8 @@ namespace PressureMapViewer
             {
                 Width = 10,
                 Height = 10,
-                Fill = Brushes.White,
-                Stroke = Brushes.White,
+                Fill = Brushes.Red,
+                Stroke = Brushes.Red,
                 StrokeThickness = 2
             };
             copTrajectory = new Polyline
@@ -164,6 +170,19 @@ namespace PressureMapViewer
                 StrokeThickness = 2,
                 StrokeLineJoin = PenLineJoin.Round,
                 Points = new PointCollection()
+            };
+            ACX = 48;
+            ACY = 48;
+            ACScale = 0.1;
+            AuxiliaryCircle = new Ellipse
+            {
+                Width = 10,
+                Height = 10,
+                Stroke = Brushes.Blue,
+                StrokeThickness = 1,
+                Fill = Brushes.Yellow,
+                Opacity = 0.3,
+                Visibility = Visibility.Hidden,
             };
 
             Canvas copCanvas = new Canvas
@@ -174,6 +193,7 @@ namespace PressureMapViewer
             (HeatmapImage.Parent as Grid).Children.Add(copCanvas);
             copCanvas.Children.Add(copTrajectory);
             copCanvas.Children.Add(copIndicator);
+            copCanvas.Children.Add(AuxiliaryCircle);
 
             HeatmapImage.SizeChanged += (s, e) =>
             {
@@ -203,7 +223,7 @@ namespace PressureMapViewer
                 Tag = "RightGuide",
                 Visibility = Visibility.Hidden,
             };
-
+            
             // 기존 copCanvas 재사용
             Canvas copCanvas = (HeatmapImage.Parent as Grid).Children.OfType<Canvas>().FirstOrDefault();
             if (copCanvas != null)
@@ -339,10 +359,18 @@ namespace PressureMapViewer
             if (totalPressure > 500)
             {
                 centerOfPressure = new Point(weightedX / totalPressure, weightedY / totalPressure);
+
+                // 중심점 (48, 48)을 기준으로 상대적 이동 거리 계산
+                double deltaX = centerOfPressure.X - 48; // 중심점으로부터의 X 이동 거리
+                double deltaY = centerOfPressure.Y - 48; // 중심점으로부터의 Y 이동 거리
+                // 이동 거리에 copSensitivity 적용
+                double sensitiveDeltaX = deltaX * copSensitivity;
+                double sensitiveDeltaY = deltaY * copSensitivity;
+
                 double scaleX = HeatmapImage.ActualWidth / SENSOR_SIZE;
                 double scaleY = HeatmapImage.ActualHeight / SENSOR_SIZE;
-                double screenX = centerOfPressure.X * scaleX;
-                double screenY = centerOfPressure.Y * scaleY;
+                double screenX = (48 + sensitiveDeltaX) * scaleX;
+                double screenY = (48 + sensitiveDeltaY) * scaleY;
 
                 Canvas.SetLeft(copIndicator, screenX - copIndicator.Width / 2);
                 Canvas.SetTop(copIndicator, screenY - copIndicator.Height / 2);
@@ -367,6 +395,30 @@ namespace PressureMapViewer
             {
                 Canvas.SetLeft(copIndicator, HeatmapImage.ActualWidth / 2 - copIndicator.Width / 2);
                 Canvas.SetTop(copIndicator, HeatmapImage.ActualHeight / 2 - copIndicator.Height / 2);
+            }
+        }
+
+        private void UpdateAuxiliaryCircle(bool visible)
+        {
+            if (visible)
+            {
+                if (leftGuideLine.IsVisible && rightGuideLine.IsVisible)
+                {
+                    double diameter = (leftGuideLine.X1 + rightGuideLine.X2) / 2 * ACScale;
+                    AuxiliaryCircle.Width = AuxiliaryCircle.Height = diameter;
+
+                    ACX = Canvas.GetLeft(copIndicator) + (copIndicator.Width / 2);
+                    ACY = Canvas.GetTop(copIndicator) + (copIndicator.Height / 2);
+
+                    Canvas.SetLeft(AuxiliaryCircle, ACX - (AuxiliaryCircle.Width / 2));
+                    Canvas.SetTop(AuxiliaryCircle, ACY - (AuxiliaryCircle.Height / 2));
+
+                    AuxiliaryCircle.Visibility = Visibility.Visible;
+                }
+            }
+            else
+            {
+                AuxiliaryCircle.Visibility = Visibility.Hidden;
             }
         }
 
@@ -678,6 +730,145 @@ namespace PressureMapViewer
             }
 
             return Color.FromRgb(r, g, b);
+        }
+
+        private void SmallCopButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SmallCopButton.IsChecked = true;
+            MediumCopButton.IsChecked = false;
+            LargeCopButton.IsChecked = false;
+            copIndicator.Width = 10;
+            copIndicator.Height = 10;
+        }
+
+        private void SmallCopButton_Click(object sender, RoutedEventArgs e)
+        {
+            SmallCopButton.IsChecked = true;
+            MediumCopButton.IsChecked = false;
+            LargeCopButton.IsChecked = false;
+            copIndicator.Width = 10;
+            copIndicator.Height = 10;
+        }
+
+        private void MediumCopButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SmallCopButton.IsChecked = false;
+            MediumCopButton.IsChecked = true;
+            LargeCopButton.IsChecked = false;
+            copIndicator.Width = 20;
+            copIndicator.Height = 20;
+        }
+
+        private void MediumCopButton_Click(object sender, RoutedEventArgs e)
+        {
+            SmallCopButton.IsChecked = false;
+            MediumCopButton.IsChecked = true;
+            LargeCopButton.IsChecked = false;
+            copIndicator.Width = 20;
+            copIndicator.Height = 20;
+        }
+
+        private void LargeCopButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SmallCopButton.IsChecked = false;
+            MediumCopButton.IsChecked = false;
+            LargeCopButton.IsChecked = true;
+            copIndicator.Width = 30;
+            copIndicator.Height = 30;
+        }
+
+        private void LargeCopButton_Click(object sender, RoutedEventArgs e)
+        {
+            SmallCopButton.IsChecked = false;
+            MediumCopButton.IsChecked = false;
+            LargeCopButton.IsChecked = true;
+            copIndicator.Width = 30;
+            copIndicator.Height = 30;
+        }
+
+        private void LowMovingSensitivityButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = true;
+            MiddleMovingSensitivityButton.IsChecked = false;
+            HighMovingSensitivityButton.IsChecked = false;
+            copSensitivity = 1.0;
+        }
+
+        private void LowMovingSensitivityButton_Click(object sender, RoutedEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = true;
+            MiddleMovingSensitivityButton.IsChecked = false;
+            HighMovingSensitivityButton.IsChecked = false;
+            copSensitivity = 1.0;
+        }
+
+        private void MiddleMovingSensitivityButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = false;
+            MiddleMovingSensitivityButton.IsChecked = true;
+            HighMovingSensitivityButton.IsChecked = false;
+            copSensitivity = 1.5;
+        }
+
+        private void MiddleMovingSensitivityButton_Click(object sender, RoutedEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = false;
+            MiddleMovingSensitivityButton.IsChecked = true;
+            HighMovingSensitivityButton.IsChecked = false;
+            copSensitivity = 1.5;
+        }
+
+        private void HighMovingSensitivityButton_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = false;
+            MiddleMovingSensitivityButton.IsChecked = false;
+            HighMovingSensitivityButton.IsChecked = true;
+            copSensitivity = 2.0;
+        }
+
+        private void HighMovingSensitivityButton_Click(object sender, RoutedEventArgs e)
+        {
+            LowMovingSensitivityButton.IsChecked = false;
+            MiddleMovingSensitivityButton.IsChecked = false;
+            HighMovingSensitivityButton.IsChecked = true;
+            copSensitivity = 2.0;
+        }
+
+        private void AuxiliaryCircleOnButton_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircleOffButton_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateAuxiliaryCircle(false);
+        }
+
+        private void AuxiliaryCircle10perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.Gray;
+            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            ACScale = 0.1;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircle20perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle20perButton.Background = Brushes.Gray;
+            AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            ACScale = 0.2;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircle30perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle30perButton.Background = Brushes.Gray;
+            ACScale = 0.3;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
         }
 
         private void UpdateTrajectoryPoints()

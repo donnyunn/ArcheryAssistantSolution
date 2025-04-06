@@ -49,12 +49,12 @@
                                VerticalAlignment="Center"
                                Width="960"
                                Height="960"/>
-                        <Path Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
+                        <Path x:Name="HorizontalCenterLine" Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
                             <Path.Data>
                                 <LineGeometry StartPoint="0,480" EndPoint="960,480"/>
                             </Path.Data>
                         </Path>
-                        <Path Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
+                        <Path x:Name="VerticalCenterLine" Stroke="Red" StrokeThickness="1" Stretch="Fill" StrokeDashArray="2,4">
                             <Path.Data>
                                 <LineGeometry StartPoint="480,0" EndPoint="480,960"/>
                             </Path.Data>
@@ -225,6 +225,230 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <Border Grid.Row="1" Grid.Column="1"
+                    Background="#222222" BorderBrush="#444444" BorderThickness="1"
+                    Margin="10,10,10,10" CornerRadius="5">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="200"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="무게중심"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="SmallCopButton_MouseDown">
+                                    <RadioButton IsChecked="True"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             x:Name="SmallCopButton" Click="SmallCopButton_Click"/>
+                                </Grid>
+                                <Ellipse Grid.Column="1" Width="10" Height="10" Fill="Red"
+                                         HorizontalAlignment="Left"
+                                         VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Column="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="MediumCopButton_MouseDown">
+                                    <RadioButton IsChecked="False"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             x:Name="MediumCopButton" Click="MediumCopButton_Click"/>
+                                </Grid>
+                                <Ellipse Grid.Column="1" Width="20" Height="20" Fill="Red"
+                                         HorizontalAlignment="Left"
+                                         VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Column="3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="LargeCopButton_MouseDown">
+                                    <RadioButton IsChecked="False"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             x:Name="LargeCopButton" Click="LargeCopButton_Click"/>
+                                </Grid>
+                                <Ellipse Grid.Column="1" Width="30" Height="30" Fill="Red"
+                                         HorizontalAlignment="Left"
+                                         VerticalAlignment="Center"/>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="200"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="이동민감도"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="LowMovingSensitivityButton_MouseDown">
+                                    <RadioButton IsChecked="True"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             GroupName="MovingSensitivity"
+                                             x:Name="LowMovingSensitivityButton" Click="LowMovingSensitivityButton_Click"/>
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           Text="x1"
+                                           FontSize="20"
+                                           Foreground="White"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Column="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="MiddleMovingSensitivityButton_MouseDown">
+                                    <RadioButton IsChecked="False"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             GroupName="MovingSensitivity"
+                                             x:Name="MiddleMovingSensitivityButton" Click="MiddleMovingSensitivityButton_Click"/>
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           Text="x1.5"
+                                           FontSize="20"
+                                           Foreground="White"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Column="3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Background="Transparent" MouseDown="HighMovingSensitivityButton_MouseDown">
+                                    <RadioButton IsChecked="False"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             GroupName="MovingSensitivity"
+                                             x:Name="HighMovingSensitivityButton" Click="HighMovingSensitivityButton_Click"/>
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           Text="x2"
+                                           FontSize="20"
+                                           Foreground="White"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="250"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="보조선"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Margin="10"
+                                    Content="ON / Reset"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircleOnButton" Click="AuxiliaryCircleOnButton_Click"/>
+                            <Button Grid.Column="2" Margin="10"
+                                    Content="OFF"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircleOffButton" Click="AuxiliaryCircleOffButton_Click"/>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="3">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="300"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="1" Margin="10"
+                                    Background="Gray"
+                                    Content="10%"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircle10perButton" Click="AuxiliaryCircle10perButton_Click"/>
+                            <Button Grid.Column="2" Margin="10"
+                                    Background="LightGray"
+                                    Content="20%"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircle20perButton" Click="AuxiliaryCircle20perButton_Click"/>
+                            <Button Grid.Column="3" Margin="10"
+                                    Background="LightGray"
+                                    Content="30%"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircle30perButton" Click="AuxiliaryCircle30perButton_Click"/>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="350"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="컬러맵 Max"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
 
             <Border Grid.Row="2" Grid.Column="1"
                     Background="#222222" BorderBrush="#444444" BorderThickness="1"
