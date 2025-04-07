@@ -187,7 +187,7 @@ namespace MultiWebcamApp
         // 오류 임계값 확인 메서드
         private void CheckErrorThresholds()
         {
-            bool resetNeeded = false;
+            //bool resetNeeded = false;
 
             // 모든 포트의 오류 카운터 확인
             for (int i = 0; i < _consecutiveErrorsPerPort.Length; i++)
@@ -195,20 +195,23 @@ namespace MultiWebcamApp
                 if (_consecutiveErrorsPerPort[i] >= ERROR_THRESHOLD)
                 {
                     Console.WriteLine($"포트 {_portNames[i]}에서 연속 오류 임계값({ERROR_THRESHOLD})에 도달: 재설정 필요");
-                    resetNeeded = true;
+                    //resetNeeded = true;
                     // 카운터 리셋 (중복 재설정 방지)
                     _consecutiveErrorsPerPort[i] = 0;
+
+                    int portIndex = i;
+                    Task.Run(() => ResetPort(portIndex));
                 }
             }
 
             // 하나 이상의 포트가 임계값에 도달했다면 재설정 실행
-            if (resetNeeded)
-            {
-                Console.WriteLine("오류 임계값에 도달한 포트가 감지되어 모든 포트를 재설정합니다...");
+            //if (resetNeeded)
+            //{
+            //    Console.WriteLine("오류 임계값에 도달한 포트가 감지되어 모든 포트를 재설정합니다...");
 
-                // WorkTask 내에서 동기적으로 실행하는 것보다 별도의 태스크로 실행
-                Task.Run(() => ResetAllPorts());
-            }
+            //    // WorkTask 내에서 동기적으로 실행하는 것보다 별도의 태스크로 실행
+            //    Task.Run(() => ResetAllPorts());
+            //}
         }
 
         // 응답 패킷 수신 처리
@@ -237,14 +240,17 @@ namespace MultiWebcamApp
             // 모든 포트의 수신이 완료될 때까지 대기 (최대 300ms)
             try
             {
-                await Task.WhenAll(receiveTasks).TimeoutAfter(300);
+                await Task.WhenAll(receiveTasks).TimeoutAfter(500);
 
                 // 각 태스크의 결과를 배열에 저장
                 for (int i = 0; i < _ports.Length; i++)
                 {
                     quadrantDataArray[i] = receiveTasks[i].Result;
 
-                    if (quadrantDataArray[i] == null) quadrantDataArray[i] = _previousQuadrantDataArray[i].ToArray();
+                    //if (quadrantDataArray[i] == null)
+                    //{
+                    //    quadrantDataArray[i] = _previousQuadrantDataArray[i];
+                    //}
 
                     if (IsDataIdentical(_previousQuadrantDataArray[i], quadrantDataArray[i]))
                     {
@@ -300,7 +306,6 @@ namespace MultiWebcamApp
         private bool IsDataIdentical(ushort[] previous, ushort[] current)
         {
             if (previous == null || current == null) return true;
-
             if (previous.Length != current.Length) return false;
 
             for (int i = 0; i < previous.Length; i++)
@@ -442,9 +447,11 @@ namespace MultiWebcamApp
                     }
                     else
                     {
-                        Thread.Sleep(5);
+                        Thread.Sleep(1);
                     }
                 }
+
+                port.DiscardInBuffer();
 
                 if (bytesRead >= PACKET_SIZE)
                 {
@@ -474,18 +481,19 @@ namespace MultiWebcamApp
             for (int i = 0; i < _ports.Length; i++)
             {
                 int portIndex = i;
-                if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
-                {
-                    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
-                }
-                else
-                {
-                    sendTasks[i] = Task.CompletedTask;
-                }
+                //if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
+                //{
+                //    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
+                //}
+                //else
+                //{
+                //    sendTasks[i] = Task.CompletedTask;
+                //}
+                SendToPort(portIndex);
             }
 
             // 모든 포트의 송신이 완료될 때까지 대기 (최대 300ms)
-            await Task.WhenAll(sendTasks).TimeoutAfter(300);
+            //await Task.WhenAll(sendTasks).TimeoutAfter(300);
         }
 
         // 단일 포트에 요청 패킷 송신
@@ -497,19 +505,48 @@ namespace MultiWebcamApp
 
             try
             {
+                // 포트가 닫혀 있으면 다시 열기 시도
+                if (!port.IsOpen)
+                {
+                    try
+                    {
+                        Console.WriteLine($"포트 {port.PortName}가 닫혀 있어 다시 열기 시도");
+                        port.Open();
+                        Thread.Sleep(50); // 포트가 안정화될 시간 제공
+                        Console.WriteLine($"포트 {port.PortName} 재연결 성공");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"포트 {port.PortName} 재연결 실패: {ex.Message}");
+                        _consecutiveErrorsPerPort[portIndex]++;
+                        return false;
+                    }
+                }
+
                 // 송신 전 버퍼 비우기
-                port.DiscardOutBuffer();
-                port.DiscardInBuffer();
+                //port.DiscardOutBuffer();
+                //port.DiscardInBuffer();
+
+                //Thread.Sleep(5);
 
                 // 요청 패킷 전송 (14바이트)
                 port.Write(REQUEST_PATTERN, 0, REQUEST_SIZE);
-                port.Flush();
+                //port.Flush();
 
                 return true;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"포트 {port.PortName}에 요청 송신 중 오류: {ex.Message}");
+
+                Console.WriteLine($"스택 추적: {ex.StackTrace}");
+
+                if (ex.InnerException != null)
+                    Console.WriteLine($"내부 예외: {ex.InnerException.Message}");
+
+                // 포트 상태 출력
+                Console.WriteLine($"포트 상태: IsOpen={port.IsOpen}, BytesToWrite={port.BytesToWrite}, BytesToRead={port.BytesToRead}");
+
                 return false;
             }
         }
@@ -591,11 +628,11 @@ namespace MultiWebcamApp
                             }
                         }
 
-                        _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                        _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 115200, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
                         {
-                            ReadTimeout = 50,
+                            ReadTimeout = 300,
                             ReadBufferSize = 16384,
-                            WriteBufferSize = 4096
+                            WriteBufferSize = 4096,
                         };
                         _ports[i].Open();
                         _consecutiveErrorsPerPort[i] = 0; // 에러 카운터 초기화
@@ -628,6 +665,46 @@ namespace MultiWebcamApp
         {
             StopWorkTask();
             return;
+        }
+
+        public void ResetPort(int portIndex)
+        {
+            if (portIndex < 0 || portIndex >= _ports.Length)
+                return;
+
+            try
+            {
+                // 기존 포트 정리
+                if (_ports[portIndex] != null)
+                {
+                    try
+                    {
+                        if (_ports[portIndex].IsOpen)
+                            _ports[portIndex].Close();
+                        _ports[portIndex].Dispose();
+                    }
+                    catch { }
+                }
+
+                Thread.Sleep(10);
+
+                // 포트 새로 열기
+                _ports[portIndex] = new RJCP.IO.Ports.SerialPortStream(_portNames[portIndex], 115200, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                {
+                    ReadTimeout = 300,
+                    ReadBufferSize = 16384,
+                    WriteBufferSize = 4096
+                };
+                _ports[portIndex].Open();
+
+                // 오류 카운터 초기화
+                _consecutiveErrorsPerPort[portIndex] = 0;
+                Console.WriteLine($"포트 {_portNames[portIndex]} 복구 성공");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"포트 {_portNames[portIndex]} 복구 실패: {ex.Message}");
+            }
         }
 
         public void ResetAllPorts()
