@@ -50,6 +50,8 @@ namespace MultiWebcamApp
         private readonly int[] _consecutiveErrorsPerPort = new int[4];
         private const int ERROR_THRESHOLD = 5;
 
+        private ushort[][] _previousQuadrantDataArray;
+
         private Task _workTask;
         private AutoResetEvent _workSignal = new AutoResetEvent(false);
         private volatile bool _isRunning = false;
@@ -59,6 +61,7 @@ namespace MultiWebcamApp
             _ports = new RJCP.IO.Ports.SerialPortStream[_portNames.Length];
             _dataQueue = new ConcurrentQueue<(ushort[], long)>();
             InitializePorts();
+            _previousQuadrantDataArray = new ushort[_ports.Length][];
         }
 
         public FrameData CaptureFrame()
@@ -157,7 +160,7 @@ namespace MultiWebcamApp
                 try
                 {
                     // 오류 카운터 확인 (각 WorkTask 사이클 시작 시)
-                    //CheckErrorThresholds();
+                    CheckErrorThresholds();
 
                     // CaptureFrame에서 신호가 올 때까지 대기
                     _workSignal.WaitOne();
@@ -226,20 +229,33 @@ namespace MultiWebcamApp
                 }
                 else
                 {
-                    _consecutiveErrorsPerPort[i]++;
+                    //_consecutiveErrorsPerPort[i]++;
                     receiveTasks[i] = Task.FromResult<ushort[]>(null);
                 }
             }
 
-            // 모든 포트의 수신이 완료될 때까지 대기 (최대 500ms)
+            // 모든 포트의 수신이 완료될 때까지 대기 (최대 300ms)
             try
             {
-                await Task.WhenAll(receiveTasks).TimeoutAfter(500);
+                await Task.WhenAll(receiveTasks).TimeoutAfter(300);
 
                 // 각 태스크의 결과를 배열에 저장
                 for (int i = 0; i < _ports.Length; i++)
                 {
                     quadrantDataArray[i] = receiveTasks[i].Result;
+
+                    if (IsDataIdentical(_previousQuadrantDataArray[i], quadrantDataArray[i]))
+                    {
+                        _consecutiveErrorsPerPort[i]++;
+                    }
+                    else
+                    {
+                        _consecutiveErrorsPerPort[i] = 0;
+                    }
+
+                    // 현재 데이터를 이전 데이터로 저장
+                    _previousQuadrantDataArray[i] = quadrantDataArray[i]?.ToArray(); // 깊은 복사
+
                 }
             }
             catch (TimeoutException)
@@ -252,6 +268,18 @@ namespace MultiWebcamApp
                     if (receiveTasks[i].IsCompleted && !receiveTasks[i].IsFaulted)
                     {
                         quadrantDataArray[i] = receiveTasks[i].Result;
+
+                        if (IsDataIdentical(_previousQuadrantDataArray[i], quadrantDataArray[i]))
+                        {
+                            _consecutiveErrorsPerPort[i]++;
+                        }
+                        else
+                        {
+                            _consecutiveErrorsPerPort[i] = 0;
+                        }
+
+                        // 현재 데이터를 이전 데이터로 저장
+                        _previousQuadrantDataArray[i] = quadrantDataArray[i]?.ToArray(); // 깊은 복사
                     }
                 }
             }
@@ -264,6 +292,20 @@ namespace MultiWebcamApp
             // 수집된 데이터를 결합하여 96x96 배열 생성
             bool anyDataProcessed = CombineQuadrantData(quadrantDataArray);
             return anyDataProcessed;
+        }
+
+        // 두 데이터 배열이 동일한지 비교하는 메소드
+        private bool IsDataIdentical(ushort[] previous, ushort[] current)
+        {
+            if (previous == null || current == null) return true;
+
+            if (previous.Length != current.Length) return false;
+
+            for (int i = 0; i < previous.Length; i++)
+            {
+                if (previous[i] != current[i]) return false;
+            }
+            return true;
         }
 
         // 사분면 데이터를 결합하여 96x96 배열 생성
