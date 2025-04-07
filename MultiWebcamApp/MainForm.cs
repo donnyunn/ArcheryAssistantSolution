@@ -58,6 +58,9 @@ namespace MultiWebcamApp
         private ScreenRecordingLib.ScreenRecorder recorder;
         private bool _isRecording = false;
 
+        // 슬로우 모드용 카운터
+        private int _slowCounter = 0;
+
         public MainForm()
         {
             InitializeComponent();
@@ -186,7 +189,10 @@ namespace MultiWebcamApp
                             frame = _buffer.GetFrame(_buffer.PlayPosition);
                             if (frame != null)
                             {
-                                _buffer.PlayPosition = (_buffer.PlayPosition + 1) % _buffer.Count;
+                                if (_slowCounter++ % _slowLevel == 0)
+                                {
+                                    _buffer.PlayPosition = (_buffer.PlayPosition + 1) % _buffer.Count;
+                                }
                                 if (_buffer.PlayPosition == (_buffer.Count - 1))
                                 {
                                     PauseButton_Click(this, null);
@@ -227,9 +233,6 @@ namespace MultiWebcamApp
                 Interlocked.Exchange(ref _isProcessing, 0);
             }
         }
-
-        // 슬로우 모드용 카운터
-        private int _slowCounter = 0;
 
         private void UpdateUI(FrameData frame, string msg = "", string msg2 = "")
         {
@@ -527,9 +530,11 @@ namespace MultiWebcamApp
                 {
                     recorder.StartRecording();
                 }
+                _displayManager.UiDisplaySetStatusMessage("관찰을 시작합니다.");
             }
             else
             {
+                _displayManager.UiDisplaySetStatusMessage("대기 상태로 돌아갑니다.");
                 // 녹화 중이면 녹화 중지
                 if (_isRecording)
                 {
@@ -543,6 +548,12 @@ namespace MultiWebcamApp
                 _recordButton.Enabled = true;
                 _buffer.Clear();
                 _pressurePadSource.ResetAllPorts();
+
+                _slowLevel = 1;
+                _slowCounter = 0;
+                _isSlowMode = false;
+                _slowButton.Text = "Slow";
+                _displayManager.UiDisplaySetSlowButtonText(_slowLevel);
             }
             _displayManager.UiDisplaySetDelaySliderEnabled(!_isStarted);
             _displayManager.UiDisplaySetRecordToggleEnabled(!_isStarted);
@@ -558,10 +569,12 @@ namespace MultiWebcamApp
                 if (_isPaused)
                 {
                     _mode = OperationMode.Stop;
+                    _displayManager.UiDisplaySetStatusMessage("재생을 멈춥니다.");
                 }
                 else
                 {
                     _mode = OperationMode.Replay;
+                    _displayManager.UiDisplaySetStatusMessage("다시보기를 시작합니다.");
                 }
                 UpdatePlayPauseButton();
 

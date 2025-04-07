@@ -70,7 +70,14 @@ namespace UserInterface
 
         private void btnClose_Click(object sender, RoutedEventArgs e)
         {
-            CloseButton?.Invoke(this, EventArgs.Empty);
+            var exitWindow = new CheckingExitWindow();
+            exitWindow.Owner = this;
+            bool? result = exitWindow.ShowDialog();
+
+            if (result == true)
+            {
+                CloseButton?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         private void btnStart_Click(object sender, RoutedEventArgs e)

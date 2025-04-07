@@ -48,7 +48,7 @@ namespace MultiWebcamApp
 
         // 예외 카운터를 포트별로 추적
         private readonly int[] _consecutiveErrorsPerPort = new int[4];
-        private const int ERROR_THRESHOLD = 5;
+        private const int ERROR_THRESHOLD = 15;
 
         private ushort[][] _previousQuadrantDataArray;
 
@@ -243,6 +243,8 @@ namespace MultiWebcamApp
                 for (int i = 0; i < _ports.Length; i++)
                 {
                     quadrantDataArray[i] = receiveTasks[i].Result;
+
+                    if (quadrantDataArray[i] == null) quadrantDataArray[i] = _previousQuadrantDataArray[i].ToArray();
 
                     if (IsDataIdentical(_previousQuadrantDataArray[i], quadrantDataArray[i]))
                     {
@@ -496,6 +498,7 @@ namespace MultiWebcamApp
             try
             {
                 // 송신 전 버퍼 비우기
+                port.DiscardOutBuffer();
                 port.DiscardInBuffer();
 
                 // 요청 패킷 전송 (14바이트)
