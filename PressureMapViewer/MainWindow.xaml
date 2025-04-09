@@ -446,7 +446,7 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                             <ComboBox Grid.Column="1" Margin="10,10,30,10"
-                                      SelectedIndex="4"
+                                      SelectedIndex="2"
                                       FontSize="24"
                                       FontWeight="Bold"
                                       HorizontalContentAlignment="Center"

@@ -372,16 +372,16 @@ namespace MultiWebcamApp
                                 switch (portIndex)
                                 {
                                     case 0: // 좌측 상단: Y축 대칭
-                                        destRow = (int)startPos.Y + (47 - row);
-                                        destCol = (int)startPos.X + (47 - col);
+                                        destRow = (int)startPos.Y + (row);
+                                        destCol = (int)startPos.X + (col);
                                         break;
                                     case 1: // 좌측 하단: Y축 대칭
-                                        destRow = (int)startPos.Y + (47 - row);
-                                        destCol = (int)startPos.X + col;
+                                        destRow = (int)startPos.Y + (row);
+                                        destCol = (int)startPos.X + (col);
                                         break;
                                     case 2: // 우측 상단: X축 대칭
                                         destRow = (int)startPos.Y + row;
-                                        destCol = (int)startPos.X + (47 - col);
+                                        destCol = (int)startPos.X + (col);
                                         break;
                                     case 3: // 우측 하단: 정상
                                         destRow = (int)startPos.Y + row;

@@ -63,7 +63,7 @@ namespace MultiWebcamApp
                     _capture.Set(VideoCaptureProperties.FrameWidth, 1920);
                     _capture.Set(VideoCaptureProperties.FrameHeight, 1080);
                     _capture.Set(VideoCaptureProperties.Fps, 60);
-                    _capture.Set(VideoCaptureProperties.BufferSize, 5);
+                    _capture.Set(VideoCaptureProperties.BufferSize, 10);
 
                     // MJPEG 포맷 설정
                     int fourcc = VideoWriter.FourCC('M', 'J', 'P', 'G');

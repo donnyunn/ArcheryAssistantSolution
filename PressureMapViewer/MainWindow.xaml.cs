@@ -84,7 +84,7 @@ namespace PressureMapViewer
         {
             InitializeComponent();
             InitializeRendering();
-            InitializeHeatmapPalette(1024);
+            InitializeHeatmapPalette(256);
             InitializeCOPIndicator();
             InitializeCharts();
             InitializeFootOutlineGuides();
