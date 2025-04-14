@@ -21,6 +21,9 @@ namespace CameraViewer
         private List<Shape> _shapes = new List<Shape>();
         private Shape _currentShape = null;
 
+        // 버튼 이벤트
+        public event EventHandler SwapButtonEvent;
+
         // 드로잉 모드
         public enum DrawingMode
         {
@@ -36,7 +39,7 @@ namespace CameraViewer
         private readonly double _lineOpacity = 0.8;
 
         // 카메라 모드
-        private volatile bool _mirrorMode = false;
+        private volatile bool _mirrorMode = true;
 
         public MainWindow()
         {
@@ -443,6 +446,11 @@ namespace CameraViewer
             {
                 _mirrorMode = true;
             }
+        }
+
+        private void SwapButton_Click(object sender, RoutedEventArgs e)
+        {
+            SwapButtonEvent?.Invoke(this, EventArgs.Empty);
         }
 
         #endregion
