@@ -209,7 +209,6 @@
                         <RadioButton x:Name="NormalViewButton" 
                                      Content=" 카메라" 
                                      Foreground="White" 
-                                     IsChecked="True"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      VerticalContentAlignment="Center"
@@ -217,12 +216,36 @@
                         <RadioButton x:Name="MirrorViewButton" 
                                      Content=" 거울" 
                                      Foreground="White"
+                                     IsChecked="True"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      VerticalContentAlignment="Center"
                                      Checked="ViewModeButton_Checked"/>
                     </StackPanel>
                 </GroupBox>
+                <!-- 교체 버튼 -->
+                <Button x:Name="SwapButton"
+                        Content="위아래교체"
+                        Padding="10,5"
+                        Background="#40000000"
+                        Foreground="White"
+                        BorderBrush="#40FFFFFF"
+                                     Margin="5,5,5,5"
+                        FontSize="24"
+                        Click="SwapButton_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="5">
+                                <ContentPresenter HorizontalAlignment="Center" 
+                                                  VerticalAlignment="Center" 
+                                                  Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
             </StackPanel>
         </Border>
     </Grid>

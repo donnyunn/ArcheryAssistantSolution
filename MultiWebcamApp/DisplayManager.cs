@@ -17,6 +17,7 @@ namespace MultiWebcamApp
         private CameraViewer.MainWindow _bodyDisplay;
         private PressureMapViewer.MainWindow _pressureDisplay;
         private bool _isDisposed;
+        private bool _webcamOrderSwapped = false;
 
         // PressureMapViewer 접근 속성 (RecordingManager가 필요로 함)
         public PressureMapViewer.MainWindow PressureDisplay => _pressureDisplay;
@@ -36,6 +37,9 @@ namespace MultiWebcamApp
                 wpfWindows[0] = _headDisplay;
                 wpfWindows[1] = _bodyDisplay;
                 wpfWindows[2] = _pressureDisplay;
+
+                _headDisplay.SwapButtonEvent += SwapCameraDisplay;
+                _bodyDisplay.SwapButtonEvent += SwapCameraDisplay;
             }
             catch (Exception ex)
             {
@@ -81,13 +85,14 @@ namespace MultiWebcamApp
                     var orderedScreens = screens.OrderBy(s => s.Bounds.Y).ToList();
 
                     var monitor1 = orderedScreens[0];
-                    _headDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
-                    _headDisplay.WindowStyle = WindowStyle.None;
-                    _headDisplay.ResizeMode = ResizeMode.NoResize;
-                    _headDisplay.Left = monitor1.Bounds.Left;
-                    _headDisplay.Top = monitor1.Bounds.Top;
-                    _headDisplay.Width = monitor1.Bounds.Width;
-                    _headDisplay.Height = monitor1.Bounds.Height;
+                    var webcamDisplay = _webcamOrderSwapped ? _bodyDisplay : _headDisplay;
+                    webcamDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
+                    webcamDisplay.WindowStyle = WindowStyle.None;
+                    webcamDisplay.ResizeMode = ResizeMode.NoResize;
+                    webcamDisplay.Left = monitor1.Bounds.Left;
+                    webcamDisplay.Top = monitor1.Bounds.Top;
+                    webcamDisplay.Width = monitor1.Bounds.Width;
+                    webcamDisplay.Height = monitor1.Bounds.Height;
 
                     var monitor2 = orderedScreens[1];
                     _uiDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -99,13 +104,14 @@ namespace MultiWebcamApp
                     _uiDisplay.Height = monitor2.Bounds.Height;
 
                     var monitor3 = orderedScreens[2];
-                    _bodyDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
-                    _bodyDisplay.WindowStyle = WindowStyle.None;
-                    _bodyDisplay.ResizeMode = ResizeMode.NoResize;
-                    _bodyDisplay.Left = monitor3.Bounds.Left;
-                    _bodyDisplay.Top = monitor3.Bounds.Top;
-                    _bodyDisplay.Width = monitor3.Bounds.Width;
-                    _bodyDisplay.Height = monitor3.Bounds.Height;
+                    webcamDisplay = _webcamOrderSwapped ? _headDisplay : _bodyDisplay;
+                    webcamDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
+                    webcamDisplay.WindowStyle = WindowStyle.None;
+                    webcamDisplay.ResizeMode = ResizeMode.NoResize;
+                    webcamDisplay.Left = monitor3.Bounds.Left;
+                    webcamDisplay.Top = monitor3.Bounds.Top;
+                    webcamDisplay.Width = monitor3.Bounds.Width;
+                    webcamDisplay.Height = monitor3.Bounds.Height;
 
                     var monitor0 = orderedScreens[3];
                     _pressureDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -211,6 +217,12 @@ namespace MultiWebcamApp
             {
                 Console.WriteLine($"디스플레이 종료 중 오류: {ex.Message}");
             }
+        }
+
+        public void SwapCameraDisplay(object? sender, EventArgs e)
+        {
+            _webcamOrderSwapped = !_webcamOrderSwapped;
+            ConfigureDisplayPositions();
         }
 
         public void CallUiDisplayUpdateRecordingStatus()
