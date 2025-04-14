@@ -251,7 +251,10 @@ namespace UserInterface
         public void SetStatusMessage(string message)
         {
             _statusEraserTimer.Stop();
-            statusMessage.Text = message;
+            statusMessage.Dispatcher.Invoke(() =>
+            {
+                statusMessage.Text = message;
+            });
             _statusEraserTimer.Start();
         }
 

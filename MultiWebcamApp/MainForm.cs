@@ -169,7 +169,7 @@ namespace MultiWebcamApp
                                 playPosition = 0;
                                 int remainingFrames = delayFrames - _buffer.Count + 1;
                                 int countdownSeconds = (int)(remainingFrames / FPS) + 1;
-                                msgLower = statusMessage(_buffer.Count / FPS);
+                                msgLower = statusMessage(0.0f);
                                 msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "●";
                             }
                             else

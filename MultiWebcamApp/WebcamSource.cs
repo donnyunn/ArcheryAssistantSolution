@@ -60,8 +60,8 @@ namespace MultiWebcamApp
                     _capture.Open(_cameraIndex, VideoCaptureAPIs.MSMF);
                     System.Threading.Thread.Sleep(500);
 
-                    _capture.Set(VideoCaptureProperties.FrameWidth, 1920);
-                    _capture.Set(VideoCaptureProperties.FrameHeight, 1080);
+                    _capture.Set(VideoCaptureProperties.FrameWidth, 1280);
+                    _capture.Set(VideoCaptureProperties.FrameHeight, 720);
                     _capture.Set(VideoCaptureProperties.Fps, 60);
                     _capture.Set(VideoCaptureProperties.BufferSize, 10);
 
