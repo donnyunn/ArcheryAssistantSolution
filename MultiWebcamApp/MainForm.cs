@@ -153,7 +153,8 @@ namespace MultiWebcamApp
                     case OperationMode.Idle:
                         if (_syncManager.TryGetFrame(out frame))
                         {
-                            msgLower = statusMessage(_buffer.PlayPosition / FPS);
+                            msgUpper = statusMessage(_buffer.PlayPosition / FPS);
+                            msgLower = "Ready";
                         }
                         break;
                     case OperationMode.Play:
@@ -169,14 +170,14 @@ namespace MultiWebcamApp
                                 playPosition = 0;
                                 int remainingFrames = delayFrames - _buffer.Count + 1;
                                 int countdownSeconds = (int)(remainingFrames / FPS) + 1;
-                                msgLower = statusMessage(0.0f);
-                                msgUpper = countdownSeconds != 0 ? countdownSeconds.ToString() : "●";
+                                msgUpper = statusMessage(0.0f);
+                                msgLower = countdownSeconds != 0 ? countdownSeconds.ToString() : "Play";
                             }
                             else
                             {
                                 playPosition = _buffer.Count - delayFrames - 1;
-                                msgLower = statusMessage(playPosition / FPS);
-                                msgUpper = "●";
+                                msgUpper = statusMessage(playPosition / FPS);
+                                msgLower = "Play";
                             }
 
                             frame = _buffer.GetFrame(playPosition);
@@ -198,8 +199,8 @@ namespace MultiWebcamApp
                                     PauseButton_Click(this, null);
                                 }
 
-                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
-                                msgUpper = "▶";
+                                msgUpper = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgLower = "Replay";
                             }
                         }
                         break;
@@ -209,8 +210,8 @@ namespace MultiWebcamApp
                             frame = _buffer.GetFrame(_buffer.PlayPosition);
                             if (frame != null)
                             {
-                                msgLower = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
-                                msgUpper = "■";
+                                msgUpper = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgLower = "Stop";
                             }
                         }
                         break;
@@ -218,7 +219,7 @@ namespace MultiWebcamApp
 
                 if (frame != null && !_isClosing && IsHandleCreated)
                 {
-                    UpdateUI(frame, msgLower, msgUpper);
+                    UpdateUI(frame, msgUpper, msgLower);
                 }
 
                 _syncManager.CaptureFrames();

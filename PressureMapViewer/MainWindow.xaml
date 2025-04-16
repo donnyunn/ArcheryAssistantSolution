@@ -459,6 +459,19 @@
                                 <ComboBoxItem>512 kpa</ComboBoxItem>
                                 <ComboBoxItem>1024 kpa</ComboBoxItem>
                             </ComboBox>
+                            <Rectangle Grid.Column="2" Height="30" Width="300" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#FFFF0000" Offset="0.0"/>
+                                        <GradientStop Color="#FFFFA500" Offset="0.12"/>
+                                        <GradientStop Color="#FFFFFF00" Offset="0.2"/>
+                                        <GradientStop Color="#FF00FF00" Offset="0.35"/>
+                                        <GradientStop Color="#FF00A5FF" Offset="0.62"/>
+                                        <GradientStop Color="#FF0000FF" Offset="0.82"/>
+                                        <GradientStop Color="#FF8200FF" Offset="1.0"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
                         </Grid>
                     </Grid>
                 </Grid>

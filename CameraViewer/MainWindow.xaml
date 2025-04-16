@@ -23,12 +23,22 @@
                 <TextBlock x:Name="FPSText"
                            VerticalAlignment="Top"
                            HorizontalAlignment="Left"
-                           Margin="5,0,5,0"
+                           Margin="0,0,0,0"
                            FontSize="96"
                            FontFamily="Arial"
                            Foreground="White"
                            Background="#80000000"
                            Opacity="0.7"/>
+
+                <TextBlock x:Name="StatusText2"
+                           VerticalAlignment="Bottom"
+                           HorizontalAlignment="Left"
+                           Margin="0,0,0,0"
+                           FontSize="48"
+                           FontFamily="Arial"
+                           Foreground="Yellow"
+                           Background="#80000000"
+                           Opacity="0.5"/>
             </Grid>
             <Grid Grid.Column="1">
                 <TextBlock x:Name="StatusText"
@@ -40,14 +50,6 @@
                            Foreground="White"
                            Background="#80000000"
                            Opacity="0.7"/>
-
-                    <TextBlock x:Name="StatusText2"
-                           VerticalAlignment="Bottom"
-                           HorizontalAlignment="Left"
-                           Margin="10"
-                           FontSize="24"
-                           FontFamily="Arial"
-                           Foreground="Red"/>
             </Grid>
         </Grid>
 
