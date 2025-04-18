@@ -148,12 +148,14 @@ namespace MultiWebcamApp
                 FrameData frame = null;
                 var msgLower = "";
                 var msgUpper = "";
+                var msgSlow = "";
                 switch (_mode)
                 {
                     case OperationMode.Idle:
                         if (_syncManager.TryGetFrame(out frame))
                         {
                             msgUpper = statusMessage(_buffer.PlayPosition / FPS);
+                            msgSlow = slowStatusMessage();
                             msgLower = "Ready";
                         }
                         break;
@@ -171,12 +173,14 @@ namespace MultiWebcamApp
                                 int remainingFrames = delayFrames - _buffer.Count + 1;
                                 int countdownSeconds = (int)(remainingFrames / FPS) + 1;
                                 msgUpper = statusMessage(0.0f);
+                                msgSlow = slowStatusMessage();
                                 msgLower = countdownSeconds != 0 ? countdownSeconds.ToString() : "Play";
                             }
                             else
                             {
                                 playPosition = _buffer.Count - delayFrames - 1;
                                 msgUpper = statusMessage(playPosition / FPS);
+                                msgSlow = slowStatusMessage();
                                 msgLower = "Play";
                             }
 
@@ -200,6 +204,7 @@ namespace MultiWebcamApp
                                 }
 
                                 msgUpper = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgSlow = slowStatusMessage(_slowLevel);
                                 msgLower = "Replay";
                             }
                         }
@@ -211,6 +216,7 @@ namespace MultiWebcamApp
                             if (frame != null)
                             {
                                 msgUpper = statusMessage(_buffer.PlayPosition / FPS, _slowLevel);
+                                msgSlow = slowStatusMessage(_slowLevel);
                                 msgLower = "Stop";
                             }
                         }
@@ -219,7 +225,7 @@ namespace MultiWebcamApp
 
                 if (frame != null && !_isClosing && IsHandleCreated)
                 {
-                    UpdateUI(frame, msgUpper, msgLower);
+                    UpdateUI(frame, msgUpper, msgLower, msgSlow);
                 }
 
                 _syncManager.CaptureFrames();
@@ -235,9 +241,9 @@ namespace MultiWebcamApp
             }
         }
 
-        private void UpdateUI(FrameData frame, string msg = "", string msg2 = "")
+        private void UpdateUI(FrameData frame, string msg = "", string msg2 = "", string msg3 = "")
         {
-            _displayManager.UpdateFrames(frame, msg, msg2);
+            _displayManager.UpdateFrames(frame, msg, msg2, msg3);
         }
 
         private string statusMessage(double seconds, int slowLevel = 1)
@@ -245,6 +251,15 @@ namespace MultiWebcamApp
             string message = "";
 
             message += $" {seconds,5:F1}s ";
+            //message += $" x{1.0 / slowLevel,1:F2} ";
+
+            return message;
+        }
+
+        private string slowStatusMessage(int slowLevel = 1)
+        {
+            string message = "";
+
             message += $" x{1.0 / slowLevel,1:F2} ";
 
             return message;

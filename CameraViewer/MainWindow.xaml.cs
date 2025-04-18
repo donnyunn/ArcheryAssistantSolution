@@ -57,7 +57,7 @@ namespace CameraViewer
         }
 
         // 외부에서 호출되는 프레임 업데이트 메서드
-        public void UpdateFrame(Mat frame, string statusText = "", string statusText2 = "")
+        public void UpdateFrame(Mat frame, string statusText = "", string statusText2 = "", string slowStatusText="")
         {
             if (frame == null || frame.IsDisposed) return;
 
@@ -115,6 +115,7 @@ namespace CameraViewer
                 // 상태 텍스트 즉시 업데이트
                 StatusText.Text = statusText;
                 StatusText2.Text = statusText2;
+                SlowStatusText.Text = slowStatusText;
             }
             catch (Exception ex)
             {

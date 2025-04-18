@@ -160,7 +160,7 @@ namespace MultiWebcamApp
             }
         }
 
-        public void UpdateFrames(FrameData frame, string lowerMessage = "", string upperMessage = "")
+        public void UpdateFrames(FrameData frame, string lowerMessage = "", string upperMessage = "", string slowMessage = "")
         {
             if (frame == null)
             {
@@ -173,14 +173,14 @@ namespace MultiWebcamApp
                 {
                     _headDisplay.Dispatcher.Invoke(() =>
                     {
-                        _headDisplay.UpdateFrame(frame.WebcamHead, lowerMessage, upperMessage);
+                        _headDisplay.UpdateFrame(frame.WebcamHead, lowerMessage, upperMessage, slowMessage);
                     });
                 }
                 if (frame.WebcamBody != null)
                 {
                     _bodyDisplay.Dispatcher.Invoke(() =>
                     {
-                        _bodyDisplay.UpdateFrame(frame.WebcamBody, lowerMessage, upperMessage);
+                        _bodyDisplay.UpdateFrame(frame.WebcamBody, lowerMessage, upperMessage, slowMessage);
                     });
                 }
                 if (frame.PressureData != null)

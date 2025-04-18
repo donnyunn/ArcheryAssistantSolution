@@ -16,10 +16,11 @@
         <!-- 상태 텍스트 -->
         <Grid>
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Grid Grid.Column="0">
+            <Grid Grid.Column="0" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
                 <!--<TextBlock x:Name="FPSText"
                            VerticalAlignment="Top"
                            HorizontalAlignment="Left"
@@ -31,25 +32,36 @@
                            Opacity="0.7"/>-->
 
                 <TextBlock x:Name="StatusText2"
-                           VerticalAlignment="Top"
+                           VerticalAlignment="Bottom"
                            HorizontalAlignment="Left"
                            Margin="0,0,0,0"
                            FontSize="96"
                            FontFamily="Arial"
                            Foreground="Yellow"
-                           Background="#80000000"
-                           Opacity="0.7"/>
+                           Background="#00000000"
+                           Opacity="1"/>
             </Grid>
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="1" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
                 <TextBlock x:Name="StatusText"
-                           VerticalAlignment="Top"
+                           VerticalAlignment="Bottom"
                            HorizontalAlignment="Left"
                            Margin="0"
                            FontSize="96"
                            FontFamily="Arial"
                            Foreground="White"
-                           Background="#80000000"
-                           Opacity="0.7"/>
+                           Background="#00000000"
+                           Opacity="1"/>
+            </Grid>
+            <Grid Grid.Column="2" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
+                <TextBlock x:Name="SlowStatusText"
+                           VerticalAlignment="Bottom"
+                           HorizontalAlignment="Left"                           
+                           Margin="0"
+                           FontSize="72"
+                           FontFamily="Arial"
+                           Foreground="LightBlue"
+                           Background="#00000000"
+                           Opacity="1"/>
             </Grid>
         </Grid>
 

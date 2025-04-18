@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Reflection;
 using System.Windows.Shapes;
 using System.Windows.Controls;
+using System.Diagnostics.Eventing.Reader;
 
 namespace PressureMapViewer
 {
@@ -109,7 +110,7 @@ namespace PressureMapViewer
 
             for (int i = 0; i < data.Length; i++)
             {
-                if (data[i] < 5) data[i] = 0;
+                if (data[i] < 10) data[i] = 0;
             }
 
             Update2D(data);
@@ -414,11 +415,13 @@ namespace PressureMapViewer
                 if (copHistory.Count > 1)
                 {
                     var gradientStops = new GradientStopCollection();
-                    int i = 0;
+                    int i = copHistory.Count;
                     foreach (var point in copHistory)
                     {
-                        double opacity = (double)i++ / copHistory.Count * TRAJECTORY_OPACITY;
-                        gradientStops.Add(new GradientStop(Color.FromArgb((byte)(255 * opacity), 255, 255, 0), (double)(i - 1) / (copHistory.Count - 1)));
+                        //double opacity = (double)i++ / copHistory.Count * TRAJECTORY_OPACITY;
+                        //double opacity = (copHistory.Count - (double)i--) / copHistory.Count * TRAJECTORY_OPACITY;
+                        double opacity = TRAJECTORY_OPACITY;
+                        gradientStops.Add(new GradientStop(Color.FromArgb((byte)(255 * opacity), 255, 0, 0), (double)(i - 1) / (copHistory.Count - 1)));
                     }
                     copTrajectory.Stroke = new LinearGradientBrush { GradientStops = gradientStops, StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
                 }
@@ -504,6 +507,8 @@ namespace PressureMapViewer
             if (leftValidCells > 0 && leftPressure > 0)
             {
                 double leftCenterY = leftWeightedY / leftPressure;
+                leftMaxY = SENSOR_SIZE;
+                leftMinY = 0;
                 int leftFootLength = Math.Max(leftMaxY - leftMinY + 1, 10);
                 leftForefootPercent = ((leftCenterY - leftMinY) / leftFootLength) * 100;
                 leftHeelPercent = 100 - leftForefootPercent;
@@ -517,6 +522,8 @@ namespace PressureMapViewer
             if (rightValidCells > 0 && rightPressure > 0)
             {
                 double rightCenterY = rightWeightedY / rightPressure;
+                rightMaxY = SENSOR_SIZE;
+                rightMinY = 0;
                 int rightFootLength = Math.Max(rightMaxY - rightMinY + 1, 10);
                 rightForefootPercent = ((rightCenterY - rightMinY) / rightFootLength) * 100;
                 rightHeelPercent = 100 - rightForefootPercent;
@@ -530,8 +537,10 @@ namespace PressureMapViewer
             double maxHeight = LeftGauge.Parent is FrameworkElement ? (LeftGauge.Parent as FrameworkElement).ActualHeight : 400;
             double maxWidth = ForefootGauge.Parent is FrameworkElement ? (ForefootGauge.Parent as FrameworkElement).ActualWidth / 2 : 400;
 
-            LeftGauge.Height = maxHeight * (100 - leftForefootPercent) / 100;
-            RightGauge.Height = maxHeight * (100 - rightForefootPercent) / 100;
+            LeftGauge.Height = maxHeight * (100 - leftForefootPercent) / 100 + 2;
+            LeftGauge2.Height = maxHeight * (100 - leftForefootPercent) / 100 - 2;
+            RightGauge.Height = maxHeight * (100 - rightForefootPercent) / 100 + 2;
+            RightGauge2.Height = maxHeight * (100 - rightForefootPercent) / 100 - 2;
             ForefootGauge.Width = maxWidth * leftPercent / 100;
             HeelGauge.Width = maxWidth * rightPercent / 100;
 
@@ -547,10 +556,10 @@ namespace PressureMapViewer
 
         private void UpdateGaugeColors(double leftForefootPercent, double rightForefootPercent, double leftPercent, double rightPercent)
         {
-            Color leftColor = leftForefootPercent >= 30 && leftForefootPercent <= 60 ? Colors.LimeGreen : (leftForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
-            Color rightColor = rightForefootPercent >= 30 && rightForefootPercent <= 60 ? Colors.LimeGreen : (rightForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
-            LeftGauge.Fill = new SolidColorBrush(leftColor);
-            RightGauge.Fill = new SolidColorBrush(rightColor);
+            //Color leftColor = leftForefootPercent >= 30 && leftForefootPercent <= 60 ? Colors.LimeGreen : (leftForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
+            //Color rightColor = rightForefootPercent >= 30 && rightForefootPercent <= 60 ? Colors.LimeGreen : (rightForefootPercent > 60 ? Colors.Yellow : Colors.Orange);
+            //LeftGauge.Fill = new SolidColorBrush(leftColor);
+            //RightGauge.Fill = new SolidColorBrush(rightColor);
 
             Color leftFootColor = Math.Abs(leftPercent - 50) <= 5 ? Colors.DodgerBlue : (leftPercent > 55 ? Colors.DodgerBlue : Colors.RoyalBlue.ChangeBrightness(0.8));
             Color rightFootColor = Math.Abs(rightPercent - 50) <= 5 ? Colors.DodgerBlue : (rightPercent > 55 ? Colors.DodgerBlue : Colors.RoyalBlue.ChangeBrightness(0.8));
@@ -856,6 +865,20 @@ namespace PressureMapViewer
                 g = (byte)(165 + (0 - 165) * t);
                 b = 0;
             }
+            //if (value == 0)
+            //{ r = 0; g = 0; b = 0; }
+            //else if (value <= 0.01)
+            //{ r = 0; g = 0; b = 255; }
+            //else if (value <= 0.02)
+            //{ r = 0; g = 255; b = 255; }
+            //else if (value <= 0.03)
+            //{ r = 0; g = 255; b = 0; }
+            //else if (value <= 0.04)
+            //{ r = 255; g = 255; b = 0; }
+            //else
+            //{ r = 255;g = 0; b = 0; }
+
+
 
             return Color.FromRgb(r, g, b);
         }
@@ -1029,26 +1052,48 @@ namespace PressureMapViewer
 
         private void MaxColorCombobox_SelectionChanged(object sender, RoutedEventArgs e)
         {
-            int maxValue = 1024;
+            int maxValue = 1000;
             switch (MaxColorCombobox.SelectedIndex)
             {
                 case 0:
-                    maxValue = 64;
+                    maxValue = 50;
                     break;
                 case 1:
-                    maxValue = 128;
+                    maxValue = 100;
                     break;
                 case 2:
-                    maxValue = 256;
+                    maxValue = 200;
                     break;
                 case 3:
-                    maxValue = 512;
+                    maxValue = 300;
                     break;
                 case 4:
-                    maxValue = 1024;
+                    maxValue = 400;
+                    break;
+                case 5:
+                    maxValue = 500;
+                    break;
+                case 6:
+                    maxValue = 600;
+                    break;
+                case 7:
+                    maxValue = 700;
+                    break;
+                case 8:
+                    maxValue = 800;
+                    break;
+                case 9:
+                    maxValue = 900;
+                    break;
+                case 10:
+                    maxValue = 1000;
                     break;
             }
             InitializeHeatmapPalette(maxValue);
+            if (MaxValueText != null)
+                MaxValueText.Text = maxValue.ToString();
+            if (MaxValueHalfText != null) 
+                MaxValueHalfText.Text = (maxValue / 2).ToString();
         }
 
         private void UpdateTrajectoryPoints()
