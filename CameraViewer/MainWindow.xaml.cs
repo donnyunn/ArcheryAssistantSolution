@@ -68,7 +68,7 @@ namespace CameraViewer
 #if (DEBUG)
                 Console.WriteLine($"Camera FPS: {_frameCount}");
 #endif
-                FPSText.Text = $" {_frameCount,2}Hz ";
+                //FPSText.Text = $" {_frameCount,2}fps ";
                 _frameCount = 0;
                 _lastFpsCheck = DateTime.Now;
             }
@@ -401,11 +401,26 @@ namespace CameraViewer
         private void DrawingModeButton_Checked(object sender, RoutedEventArgs e)
         {
             if (sender == FreeLineButton)
+            {
                 _currentDrawingMode = DrawingMode.FreeLine;
+                FreeLineButton.Background = Brushes.Gray;
+                StraightLineButton.Background = Brushes.LightGray;
+                CircleButton.Background = Brushes.LightGray;
+            }
             else if (sender == StraightLineButton)
+            {
                 _currentDrawingMode = DrawingMode.StraightLine;
+                FreeLineButton.Background = Brushes.LightGray;
+                StraightLineButton.Background = Brushes.Gray;
+                CircleButton.Background = Brushes.LightGray;
+            }
             else if (sender == CircleButton)
+            {
                 _currentDrawingMode = DrawingMode.Circle;
+                FreeLineButton.Background = Brushes.LightGray;
+                StraightLineButton.Background = Brushes.LightGray;
+                CircleButton.Background = Brushes.Gray;
+            }
         }
 
         // 색상 변경 이벤트

@@ -689,11 +689,14 @@ namespace PressureMapViewer
             UpdateChartLine(rightPressureData, RightPressureChart, RightPressureLine, _rightPressureLastValueLine, RightPressureChart.ActualHeight);
         }
 
+        private const bool WEIGHT_TEST = false;
         private void EstimateWeight(ushort[] data)
         {
             //double totalForce = 0, totalPressure = 0, totalActiveCells = 0;
             double totalPressure = 0, leftPressure = 0, rightPressure = 0, totalActiveCells = 0;
-            //const double CELL_SIZE = 0.0055, CELL_AREA = CELL_SIZE * CELL_SIZE, GRAVITY = 9.81, PRESSURE_SCALING_FACTOR = 1000.0;
+
+            double totalForce = 0;
+            const double CELL_SIZE = 0.0055, CELL_AREA = CELL_SIZE * CELL_SIZE, GRAVITY = 9.81, PRESSURE_SCALING_FACTOR = 1000.0;
 
             for (int y = 0; y < SENSOR_SIZE; y++)
             {
@@ -704,17 +707,34 @@ namespace PressureMapViewer
                     {
                         totalActiveCells++;
                         totalPressure += pressure;
-                        if (x < 48)
-                            leftPressure += pressure;
+                        if (!WEIGHT_TEST)
+                        {
+                            if (x < 48)
+                                leftPressure += pressure;
+                            else
+                                rightPressure += pressure;
+                        }
                         else
-                            rightPressure += pressure;
+                        {
+                            double force = pressure * CELL_AREA * PRESSURE_SCALING_FACTOR;
+                            totalForce += force;
+                        }
                     }
                 }
             }
 
             TotalPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
-            LeftPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(leftPressure)} kpa";
-            RightPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(rightPressure)} kpa";
+            if (!WEIGHT_TEST)
+            {
+                LeftPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(leftPressure)} kpa";
+                RightPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(rightPressure)} kpa";
+            }
+            else
+            {
+                double estimatedWeight = totalForce / GRAVITY;
+                LeftPressureText.Text = totalActiveCells < 1 ? "- kg" : $"{Math.Round(estimatedWeight, 1)} kg";
+                RightPressureText.Text = totalActiveCells < 1 ? "-" : $"{Math.Round(totalActiveCells)}";
+            }
 
 
             //for (int i = 0; i < data.Length; i++)

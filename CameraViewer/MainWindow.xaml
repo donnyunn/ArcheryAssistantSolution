@@ -20,7 +20,7 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <Grid Grid.Column="0">
-                <TextBlock x:Name="FPSText"
+                <!--<TextBlock x:Name="FPSText"
                            VerticalAlignment="Top"
                            HorizontalAlignment="Left"
                            Margin="0,0,0,0"
@@ -28,17 +28,17 @@
                            FontFamily="Arial"
                            Foreground="White"
                            Background="#80000000"
-                           Opacity="0.7"/>
+                           Opacity="0.7"/>-->
 
                 <TextBlock x:Name="StatusText2"
-                           VerticalAlignment="Bottom"
+                           VerticalAlignment="Top"
                            HorizontalAlignment="Left"
                            Margin="0,0,0,0"
-                           FontSize="48"
+                           FontSize="96"
                            FontFamily="Arial"
                            Foreground="Yellow"
                            Background="#80000000"
-                           Opacity="0.5"/>
+                           Opacity="0.7"/>
             </Grid>
             <Grid Grid.Column="1">
                 <TextBlock x:Name="StatusText"
@@ -55,48 +55,50 @@
 
         <!-- 우측 도구 메뉴 패널 -->
         <Border x:Name="ToolPanel"
-                VerticalAlignment="Center"
+                VerticalAlignment="Top"
                 HorizontalAlignment="Right"
-                Margin="0,0,10,0"
+                Margin="0,0,0,0"
                 Background="#80000000"
                 BorderBrush="#40FFFFFF"
                 BorderThickness="1"
                 CornerRadius="10"
                 Padding="10">
-            <StackPanel Orientation="Vertical" Margin="0">
+            <StackPanel Orientation="Horizontal" Margin="0">
                 <!-- 도구 모드 선택 버튼 -->
-                <GroupBox Header="도구" Foreground="White" BorderBrush="#40FFFFFF" Margin="0,0,0,5">
-                    <StackPanel Orientation="Vertical">
-                        <RadioButton x:Name="FreeLineButton" 
-                                     Content=" 자유 직선" 
-                                     Foreground="White" 
-                                     IsChecked="True"
+                <GroupBox Header="그리기" Foreground="White" BorderBrush="#40FFFFFF" Margin="0,0,0,5">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="FreeLineButton" 
+                                     Content="자유 직선" 
+                                     Background="Gray"
+                                     Width="130"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      VerticalContentAlignment="Center"
-                                     Checked="DrawingModeButton_Checked"/>
-                        <RadioButton x:Name="StraightLineButton" 
-                                     Content=" 수직선" 
-                                     Foreground="White"
+                                     Click="DrawingModeButton_Checked"/>
+                        <Button x:Name="StraightLineButton" 
+                                     Content="수직선" 
+                                     Background="LightGray"
+                                     Width="130"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      VerticalContentAlignment="Center"
-                                     Checked="DrawingModeButton_Checked"/>
-                        <RadioButton x:Name="CircleButton" 
-                                     Content=" 원" 
-                                     Foreground="White"
+                                     Click="DrawingModeButton_Checked"/>
+                        <Button x:Name="CircleButton" 
+                                     Content="원" 
+                                     Background="LightGray"
+                                     Width="130"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      VerticalContentAlignment="Center"
-                                     Checked="DrawingModeButton_Checked"/>
+                                     Click="DrawingModeButton_Checked"/>
                     </StackPanel>
                 </GroupBox>
 
                 <!-- 색상 선택 버튼 -->
-                <GroupBox Header="색상" Foreground="White" BorderBrush="#40FFFFFF">
-                    <StackPanel Orientation="Vertical">
+                <GroupBox Header="색상" Foreground="White" BorderBrush="#40FFFFFF" Margin="5,0,0,0">
+                    <StackPanel Orientation="Horizontal">
                         <RadioButton x:Name="YellowColorButton" 
-                                     Content="노랑" 
+                                     Content="Y" 
                                      Foreground="Yellow" 
                                      IsChecked="True"
                                      Margin="5,5,5,5"
@@ -104,10 +106,10 @@
                                      Checked="ColorButton_Checked">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Vertical">
                                         <Ellipse Width="16" Height="16" Fill="Yellow" Margin="0,0,5,0"/>
                                         <ContentPresenter VerticalAlignment="Center"/>
-                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="5,0,0,0" Visibility="Collapsed"/>
+                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="0,0,5,0" Visibility="Collapsed"/>
                                     </StackPanel>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
@@ -118,17 +120,17 @@
                             </RadioButton.Template>
                         </RadioButton>
                         <RadioButton x:Name="RedColorButton" 
-                                     Content="빨강" 
+                                     Content="R" 
                                      Foreground="Red"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      Checked="ColorButton_Checked">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Vertical">
                                         <Ellipse Width="16" Height="16" Fill="Red" Margin="0,0,5,0"/>
                                         <ContentPresenter VerticalAlignment="Center"/>
-                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="5,0,0,0" Visibility="Collapsed"/>
+                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="0,0,5,0" Visibility="Collapsed"/>
                                     </StackPanel>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
@@ -139,17 +141,17 @@
                             </RadioButton.Template>
                         </RadioButton>
                         <RadioButton x:Name="BlueColorButton" 
-                                     Content="파랑" 
+                                     Content="B" 
                                      Foreground="Blue"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      Checked="ColorButton_Checked">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Vertical">
                                         <Ellipse Width="16" Height="16" Fill="Blue" Margin="0,0,5,0"/>
                                         <ContentPresenter VerticalAlignment="Center"/>
-                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="5,0,0,0" Visibility="Collapsed"/>
+                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="0,0,5,0" Visibility="Collapsed"/>
                                     </StackPanel>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
@@ -160,17 +162,17 @@
                             </RadioButton.Template>
                         </RadioButton>
                         <RadioButton x:Name="GreenColorButton" 
-                                     Content="초록" 
+                                     Content="G" 
                                      Foreground="Green"
                                      Margin="5,5,5,5"
                                      FontSize="24"
                                      Checked="ColorButton_Checked">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Vertical">
                                         <Ellipse Width="16" Height="16" Fill="Green" Margin="0,0,5,0"/>
                                         <ContentPresenter VerticalAlignment="Center"/>
-                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="5,0,0,0" Visibility="Collapsed"/>
+                                        <Border x:Name="CheckMark" Width="8" Height="8" Background="White" CornerRadius="4" Margin="0,0,5,0" Visibility="Collapsed"/>
                                     </StackPanel>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
@@ -190,7 +192,7 @@
                         Background="#40000000"
                         Foreground="White"
                         BorderBrush="#40FFFFFF"
-                                     Margin="5,5,5,5"
+                                     Margin="5,10,5,0"
                         FontSize="24"
                         Click="ClearButton_Click">
                     <Button.Template>
@@ -206,10 +208,10 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <GroupBox Header="시점" Foreground="White" BorderBrush="#40FFFFFF" Margin="0,20,0,0">
-                    <StackPanel Orientation="Vertical">
+                <GroupBox Header="화면보기" Foreground="White" BorderBrush="#40FFFFFF" Margin="10,0,0,0">
+                    <StackPanel Orientation="Horizontal">
                         <RadioButton x:Name="NormalViewButton" 
-                                     Content=" 카메라" 
+                                     Content=" 원본" 
                                      Foreground="White" 
                                      Margin="5,5,5,5"
                                      FontSize="24"
@@ -227,12 +229,12 @@
                 </GroupBox>
                 <!-- 교체 버튼 -->
                 <Button x:Name="SwapButton"
-                        Content="위아래교체"
+                        Content="카메라교체"
                         Padding="10,5"
                         Background="#40000000"
                         Foreground="White"
                         BorderBrush="#40FFFFFF"
-                                     Margin="5,5,5,5"
+                                     Margin="5,10,5,0"
                         FontSize="24"
                         Click="SwapButton_Click">
                     <Button.Template>
