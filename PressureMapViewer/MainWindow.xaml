@@ -409,7 +409,9 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="300"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="100"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="1" Margin="10"
                                     Background="Gray"
@@ -429,6 +431,18 @@
                                     FontSize="24"
                                     FontWeight="Bold"
                                     x:Name="AuxiliaryCircle30perButton" Click="AuxiliaryCircle30perButton_Click"/>
+                            <Button Grid.Column="4" Margin="10"
+                                    Background="LightGray"
+                                    Content="40%"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircle40perButton" Click="AuxiliaryCircle40perButton_Click"/>
+                            <Button Grid.Column="5" Margin="10"
+                                    Background="LightGray"
+                                    Content="50%"
+                                    FontSize="24"
+                                    FontWeight="Bold"
+                                    x:Name="AuxiliaryCircle50perButton" Click="AuxiliaryCircle50perButton_Click"/>
                         </Grid>
                     </Grid>
                     <Grid Grid.Row="4">

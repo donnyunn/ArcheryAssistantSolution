@@ -957,6 +957,8 @@ namespace PressureMapViewer
             AuxiliaryCircle10perButton.Background = Brushes.Gray;
             AuxiliaryCircle20perButton.Background = Brushes.LightGray;
             AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle40perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle50perButton.Background = Brushes.LightGray;
             ACScale = 0.1;
             if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
         }
@@ -966,7 +968,42 @@ namespace PressureMapViewer
             AuxiliaryCircle10perButton.Background = Brushes.LightGray;
             AuxiliaryCircle20perButton.Background = Brushes.Gray;
             AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle40perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle50perButton.Background = Brushes.LightGray;
             ACScale = 0.2;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircle30perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle30perButton.Background = Brushes.Gray;
+            AuxiliaryCircle40perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle50perButton.Background = Brushes.LightGray;
+            ACScale = 0.3;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircle40perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle40perButton.Background = Brushes.Gray;
+            AuxiliaryCircle50perButton.Background = Brushes.LightGray;
+            ACScale = 0.4;
+            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
+        }
+
+        private void AuxiliaryCircle50perButton_Click(object sender, RoutedEventArgs e)
+        {
+            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle30perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle40perButton.Background = Brushes.LightGray;
+            AuxiliaryCircle50perButton.Background = Brushes.Gray;
+            ACScale = 0.5;
             if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
         }
 
@@ -992,15 +1029,6 @@ namespace PressureMapViewer
                     break;
             }
             InitializeHeatmapPalette(maxValue);
-        }
-
-        private void AuxiliaryCircle30perButton_Click(object sender, RoutedEventArgs e)
-        {
-            AuxiliaryCircle10perButton.Background = Brushes.LightGray;
-            AuxiliaryCircle20perButton.Background = Brushes.LightGray;
-            AuxiliaryCircle30perButton.Background = Brushes.Gray;
-            ACScale = 0.3;
-            if (AuxiliaryCircle.IsVisible) UpdateAuxiliaryCircle(true);
         }
 
         private void UpdateTrajectoryPoints()
