@@ -34,6 +34,7 @@ namespace MultiWebcamApp
             }
         }
 
+        private int _frameCnt = 0;
         // 한 번의 호출로 모든 소스에서 프레임 캡처
         public void CaptureFrames()
         {
@@ -45,22 +46,32 @@ namespace MultiWebcamApp
                 // 모든 소스에서 프레임 캡처
                 foreach (var source in _sources)
                 {
-                    var frameData = source.CaptureFrame();
-
-                    // 카메라 소스인 경우 헤드/바디 할당 (소스 인덱스 기반)
-                    if (source is WebcamSource ws)
+                    //var frameData = source.CaptureFrame();
+                    if (source is not PressurePadSource)
                     {
-                        if (frameData.WebcamHead != null)
-                            frame.WebcamHead = frameData.WebcamHead;
+                        var frameData = source.CaptureFrame();
 
-                        if (frameData.WebcamBody != null)
-                            frame.WebcamBody = frameData.WebcamBody;
+                        // 카메라 소스인 경우 헤드/바디 할당 (소스 인덱스 기반)
+                        if (source is WebcamSource ws)
+                        {
+                            if (frameData.WebcamHead != null)
+                                frame.WebcamHead = frameData.WebcamHead;
+
+                            if (frameData.WebcamBody != null)
+                                frame.WebcamBody = frameData.WebcamBody;
+                        }
                     }
-
-                    // 압력 센서 소스인 경우 압력 데이터 할당
-                    if (source is PressurePadSource ps && frameData.PressureData != null)
+                    else
                     {
-                        frame.PressureData = frameData.PressureData;
+                        if (++_frameCnt % 5 == 0)
+                        {
+                            var frameData = source.CaptureFrame();
+                            // 압력 센서 소스인 경우 압력 데이터 할당
+                            if (source is PressurePadSource ps && frameData.PressureData != null)
+                            {
+                                frame.PressureData = frameData.PressureData;
+                            }
+                        }
                     }
                 }
 

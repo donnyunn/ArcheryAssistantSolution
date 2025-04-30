@@ -99,7 +99,7 @@ namespace MultiWebcamApp
                 {
                     // 가져온 데이터를 _lastData에 저장 (이후 큐가 비었을 때 사용)
                     Array.Copy(data.Data, 0, _lastData, 0, _lastData.Length);
-
+                    //Console.WriteLine("11");
                     // 새로 가져온 데이터 반환
                     return new FrameData
                     {
@@ -110,6 +110,7 @@ namespace MultiWebcamApp
                 else
                 {
                     // 큐가 비어있으면 마지막으로 저장된 데이터 복제하여 반환
+                    //Console.WriteLine("00");
                     return new FrameData
                     {
                         PressureData = (ushort[])_lastData.Clone(),
@@ -169,6 +170,7 @@ namespace MultiWebcamApp
                         break; // 중지 신호가 왔으면 루프 종료
 
                     // 1단계: 응답 패킷 수신 (4개 포트)
+                    //await SendRequestPackets();
                     await ReceiveResponsePackets();
 
                     // 2단계: 요청 패킷 송신 (4개 포트)
@@ -451,7 +453,7 @@ namespace MultiWebcamApp
                     }
                 }
 
-                port.DiscardInBuffer();
+                //port.DiscardInBuffer();
 
                 if (bytesRead >= PACKET_SIZE)
                 {
@@ -481,19 +483,19 @@ namespace MultiWebcamApp
             for (int i = 0; i < _ports.Length; i++)
             {
                 int portIndex = i;
-                //if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
-                //{
-                //    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
-                //}
-                //else
-                //{
-                //    sendTasks[i] = Task.CompletedTask;
-                //}
-                SendToPort(portIndex);
+                if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
+                {
+                    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
+                }
+                else
+                {
+                    sendTasks[i] = Task.CompletedTask;
+                }
+                //SendToPort(portIndex);
             }
 
             // 모든 포트의 송신이 완료될 때까지 대기 (최대 300ms)
-            //await Task.WhenAll(sendTasks).TimeoutAfter(300);
+            await Task.WhenAll(sendTasks).TimeoutAfter(300);
         }
 
         // 단일 포트에 요청 패킷 송신
@@ -524,8 +526,8 @@ namespace MultiWebcamApp
                 }
 
                 // 송신 전 버퍼 비우기
-                //port.DiscardOutBuffer();
-                //port.DiscardInBuffer();
+                port.DiscardOutBuffer();
+                port.DiscardInBuffer();
 
                 //Thread.Sleep(5);
 
