@@ -559,19 +559,19 @@ namespace MultiWebcamApp
             for (int i = 0; i < _ports.Length; i++)
             {
                 int portIndex = i;
-                if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
-                {
-                    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
-                }
-                else
-                {
-                    sendTasks[i] = Task.CompletedTask;
-                }
-                //SendToPort(portIndex);
+                //if (_ports[portIndex] != null && _ports[portIndex].IsOpen)
+                //{
+                //    sendTasks[i] = Task.Run(() => SendToPort(portIndex));
+                //}
+                //else
+                //{
+                //    sendTasks[i] = Task.CompletedTask;
+                //}
+                SendToPort(portIndex);
             }
 
             // 모든 포트의 송신이 완료될 때까지 대기 (최대 300ms)
-            await Task.WhenAll(sendTasks).TimeoutAfter(300);
+            //await Task.WhenAll(sendTasks).TimeoutAfter(300);
         }
 
         // 단일 포트에 요청 패킷 송신
