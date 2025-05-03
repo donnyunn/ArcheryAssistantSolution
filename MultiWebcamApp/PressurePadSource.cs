@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace MultiWebcamApp
 {
@@ -48,13 +49,16 @@ namespace MultiWebcamApp
 
         // 예외 카운터를 포트별로 추적
         private readonly int[] _consecutiveErrorsPerPort = new int[4];
-        private const int ERROR_THRESHOLD = 15;
+        private const int ERROR_THRESHOLD = 5;
 
         private ushort[][] _previousQuadrantDataArray;
 
         private Task _workTask;
         private AutoResetEvent _workSignal = new AutoResetEvent(false);
         private volatile bool _isRunning = false;
+
+        private FrameData _frameData = new FrameData();
+        private int _frameCount = 0;
 
         public PressurePadSource()
         {
@@ -88,35 +92,51 @@ namespace MultiWebcamApp
                 Console.WriteLine("CaptureFrame에서 재설정 필요성 감지: 포트 재설정 시작");
             }
 
-            // WorkTask에 신호 보내기 (비동기적으로 패킷 수신/송신 트리거)
-            _workSignal.Set();
-
-            // 데이터 접근 동기화
-            lock (_dataLock)
+            if (_frameCount++ % 3 == 0)
             {
-                // 큐에서 데이터 가져오기 시도
-                if (_dataQueue.TryDequeue(out var data))
+
+                // WorkTask에 신호 보내기 (비동기적으로 패킷 수신/송신 트리거)
+                _workSignal.Set();
+
+                // 데이터 접근 동기화
+                lock (_dataLock)
                 {
-                    // 가져온 데이터를 _lastData에 저장 (이후 큐가 비었을 때 사용)
-                    Array.Copy(data.Data, 0, _lastData, 0, _lastData.Length);
-                    //Console.WriteLine("11");
-                    // 새로 가져온 데이터 반환
-                    return new FrameData
+                    // 큐에서 데이터 가져오기 시도
+                    if (_dataQueue.TryDequeue(out var data))
                     {
-                        PressureData = data.Data,
-                        Timestamp = data.Timestamp
-                    };
-                }
-                else
-                {
-                    // 큐가 비어있으면 마지막으로 저장된 데이터 복제하여 반환
-                    //Console.WriteLine("00");
-                    return new FrameData
+                        // 가져온 데이터를 _lastData에 저장 (이후 큐가 비었을 때 사용)
+                        Array.Copy(data.Data, 0, _lastData, 0, _lastData.Length);
+
+                        // 새로 가져온 데이터 반환
+                        _frameData.PressureData = data.Data;
+                        _frameData.Timestamp = data.Timestamp;
+                        return _frameData.Clone();
+                        //return new FrameData
+                        //{
+                        //    PressureData = data.Data,
+                        //    Timestamp = data.Timestamp
+                        //};
+                    }
+                    else
                     {
-                        PressureData = (ushort[])_lastData.Clone(),
-                        Timestamp = DateTime.Now.Ticks // 현재 시간으로 타임스탬프 갱신
-                    };
+                        _frameCount = 0;
+                        // 큐가 비어있으면 마지막으로 저장된 데이터 복제하여 반환
+                        _frameData.PressureData = _lastData;
+                        _frameData.Timestamp = DateTime.Now.Ticks;
+                        return _frameData.Clone();
+                        //return new FrameData
+                        //{
+                        //    PressureData = (ushort[])_lastData.Clone(),
+                        //    Timestamp = DateTime.Now.Ticks // 현재 시간으로 타임스탬프 갱신
+                        //};
+                    }
                 }
+            }
+            else
+            {
+                _frameData.PressureData = _lastData;
+                _frameData.Timestamp = DateTime.Now.Ticks;
+                return _frameData.Clone();
             }
         }
 
@@ -158,6 +178,8 @@ namespace MultiWebcamApp
         {
             while (_isRunning)
             {
+                Stopwatch stepStopwatch = new Stopwatch();
+
                 try
                 {
                     // 오류 카운터 확인 (각 WorkTask 사이클 시작 시)
@@ -169,12 +191,17 @@ namespace MultiWebcamApp
                     if (!_isRunning)
                         break; // 중지 신호가 왔으면 루프 종료
 
+                    // 2단계: 요청 패킷 송신 (4개 포트)
+                    //await SendRequestPackets();
+                    SendRequestPackets();
+
+                    //stepStopwatch.Restart();
                     // 1단계: 응답 패킷 수신 (4개 포트)
                     //await SendRequestPackets();
                     await ReceiveResponsePackets();
+                    //stepStopwatch.Stop();
+                    //Console.WriteLine($"{stepStopwatch.ElapsedMilliseconds}ms");
 
-                    // 2단계: 요청 패킷 송신 (4개 포트)
-                    await SendRequestPackets();
                 }
                 catch (Exception ex)
                 {
@@ -188,16 +215,14 @@ namespace MultiWebcamApp
 
         // 오류 임계값 확인 메서드
         private void CheckErrorThresholds()
-        {
-            //bool resetNeeded = false;
-
+        { 
             // 모든 포트의 오류 카운터 확인
             for (int i = 0; i < _consecutiveErrorsPerPort.Length; i++)
             {
                 if (_consecutiveErrorsPerPort[i] >= ERROR_THRESHOLD)
                 {
-                    Console.WriteLine($"포트 {_portNames[i]}에서 연속 오류 임계값({ERROR_THRESHOLD})에 도달: 재설정 필요");
-                    //resetNeeded = true;
+                    //Console.WriteLine($"포트 {_portNames[i]}에서 연속 오류 임계값({ERROR_THRESHOLD})에 도달: 재설정 필요");
+                    
                     // 카운터 리셋 (중복 재설정 방지)
                     _consecutiveErrorsPerPort[i] = 0;
 
@@ -256,6 +281,7 @@ namespace MultiWebcamApp
 
                     if (IsDataIdentical(_previousQuadrantDataArray[i], quadrantDataArray[i]))
                     {
+                        //Console.WriteLine($"COM{i+3}: {_consecutiveErrorsPerPort[i]}");
                         _consecutiveErrorsPerPort[i]++;
                     }
                     else
@@ -425,6 +451,55 @@ namespace MultiWebcamApp
             }
         }
 
+        private async Task<ushort[]> ReceiveFromPortAsync(int portIndex)
+        {
+            var port = _ports[portIndex];
+            if (port == null || !port.IsOpen)
+                return null;
+
+            try
+            {
+                // 응답 패킷 사이즈: 4622 바이트
+                byte[] buffer = new byte[PACKET_SIZE];
+                int bytesRead = 0;
+                DateTime startTime = DateTime.Now;
+
+                // 타임아웃 내에 데이터 수신 시도
+                while (bytesRead < PACKET_SIZE && (DateTime.Now - startTime).TotalMilliseconds < TIMEOUT_MS)
+                {
+                    if (port.BytesToRead > 0)
+                    {
+                        int read = await port.ReadAsync(buffer, bytesRead, Math.Min(PACKET_SIZE - bytesRead, port.BytesToRead));
+                        if (read == 0) break;
+                        bytesRead += read;
+                    }
+                    else
+                    {
+                        await Task.Delay(1);
+                    }
+                }
+
+                //port.DiscardInBuffer();
+
+                if (bytesRead >= PACKET_SIZE)
+                {
+                    // 수신된 데이터 처리
+                    ushort[] processedData = Process(buffer, portIndex);
+                    return processedData;
+                }
+                else
+                {
+                    Console.WriteLine($"포트 {port.PortName}에서 불완전한 패킷 수신: {bytesRead}/{PACKET_SIZE} 바이트");
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"포트 {port.PortName}에서 응답 수신 중 오류: {ex.Message}");
+                return null;
+            }
+        }
+
         // 단일 포트에서 응답 패킷 수신
         private ushort[] ReceiveFromPort(int portIndex)
         {
@@ -475,7 +550,8 @@ namespace MultiWebcamApp
         }
 
         // 요청 패킷 송신 처리
-        private async Task SendRequestPackets()
+        //private async Task SendRequestPackets()
+        private void SendRequestPackets()
         {
             // 각 포트별로 동시에 송신 처리
             var sendTasks = new Task[_ports.Length];
@@ -630,10 +706,10 @@ namespace MultiWebcamApp
                             }
                         }
 
-                        _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 115200, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                        _ports[i] = new RJCP.IO.Ports.SerialPortStream(_portNames[i], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
                         {
                             ReadTimeout = 300,
-                            ReadBufferSize = 16384,
+                            ReadBufferSize = 32768,
                             WriteBufferSize = 4096,
                         };
                         _ports[i].Open();
@@ -688,13 +764,13 @@ namespace MultiWebcamApp
                     catch { }
                 }
 
-                Thread.Sleep(10);
+                Thread.Sleep(1);
 
                 // 포트 새로 열기
-                _ports[portIndex] = new RJCP.IO.Ports.SerialPortStream(_portNames[portIndex], 115200, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
+                _ports[portIndex] = new RJCP.IO.Ports.SerialPortStream(_portNames[portIndex], 3000000, 8, RJCP.IO.Ports.Parity.None, RJCP.IO.Ports.StopBits.One)
                 {
                     ReadTimeout = 300,
-                    ReadBufferSize = 16384,
+                    ReadBufferSize = 32768,
                     WriteBufferSize = 4096
                 };
                 _ports[portIndex].Open();
