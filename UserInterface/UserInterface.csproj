@@ -9,4 +9,104 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="ButtonFastforward.png" />
+    <None Remove="ButtonPlay.png" />
+    <None Remove="ButtonRecord.png" />
+    <None Remove="ButtonRewind.png" />
+    <None Remove="ButtonSlow.png" />
+    <None Remove="ButtonStart.png" />
+    <None Remove="component\Images\ButtonFastforward.png" />
+    <None Remove="component\Images\ButtonPause.png" />
+    <None Remove="component\Images\ButtonPlay.png" />
+    <None Remove="component\Images\ButtonRecord.png" />
+    <None Remove="component\Images\ButtonRewind.png" />
+    <None Remove="component\Images\ButtonSlow.png" />
+    <None Remove="component\Images\ButtonStart.png" />
+    <None Remove="component\Images\ButtonStop.png" />
+    <None Remove="component\Images\Delay0.png" />
+    <None Remove="component\Images\Delay1.png" />
+    <None Remove="component\Images\Delay10.png" />
+    <None Remove="component\Images\Delay11.png" />
+    <None Remove="component\Images\Delay12.png" />
+    <None Remove="component\Images\Delay13.png" />
+    <None Remove="component\Images\Delay14.png" />
+    <None Remove="component\Images\Delay15.png" />
+    <None Remove="component\Images\Delay16.png" />
+    <None Remove="component\Images\Delay17.png" />
+    <None Remove="component\Images\Delay18.png" />
+    <None Remove="component\Images\Delay19.png" />
+    <None Remove="component\Images\Delay2.png" />
+    <None Remove="component\Images\Delay20.png" />
+    <None Remove="component\Images\Delay3.png" />
+    <None Remove="component\Images\Delay4.png" />
+    <None Remove="component\Images\Delay5.png" />
+    <None Remove="component\Images\Delay6.png" />
+    <None Remove="component\Images\Delay7.png" />
+    <None Remove="component\Images\Delay8.png" />
+    <None Remove="component\Images\Delay9.png" />
+    <None Remove="component\Images\MessageFileWriting.png" />
+    <None Remove="component\Images\MessageFileWritingOK.png" />
+    <None Remove="component\Images\MessageNotEnoughSpace.png" />
+    <None Remove="component\Images\MessagePlay.png" />
+    <None Remove="component\Images\MessageRecord.png" />
+    <None Remove="component\Images\MessageReplay.png" />
+    <None Remove="component\Images\MessageSlow0.125.png" />
+    <None Remove="component\Images\MessageSlow0.25.png" />
+    <None Remove="component\Images\MessageSlow0.5.png" />
+    <None Remove="component\Images\MessageStop.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="component\Fonts\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="ButtonFastforward.png" />
+    <Resource Include="ButtonPlay.png" />
+    <Resource Include="ButtonRecord.png" />
+    <Resource Include="ButtonRewind.png" />
+    <Resource Include="ButtonSlow.png" />
+    <Resource Include="ButtonStart.png" />
+    <Resource Include="component\Images\ButtonFastforward.png" />
+    <Resource Include="component\Images\ButtonPause.png" />
+    <Resource Include="component\Images\ButtonPlay.png" />
+    <Resource Include="component\Images\ButtonRecord.png" />
+    <Resource Include="component\Images\ButtonRewind.png" />
+    <Resource Include="component\Images\ButtonSlow.png" />
+    <Resource Include="component\Images\ButtonStart.png" />
+    <Resource Include="component\Images\ButtonStop.png" />
+    <Resource Include="component\Images\Delay0.png" />
+    <Resource Include="component\Images\Delay1.png" />
+    <Resource Include="component\Images\Delay10.png" />
+    <Resource Include="component\Images\Delay11.png" />
+    <Resource Include="component\Images\Delay12.png" />
+    <Resource Include="component\Images\Delay13.png" />
+    <Resource Include="component\Images\Delay14.png" />
+    <Resource Include="component\Images\Delay15.png" />
+    <Resource Include="component\Images\Delay16.png" />
+    <Resource Include="component\Images\Delay17.png" />
+    <Resource Include="component\Images\Delay18.png" />
+    <Resource Include="component\Images\Delay19.png" />
+    <Resource Include="component\Images\Delay2.png" />
+    <Resource Include="component\Images\Delay20.png" />
+    <Resource Include="component\Images\Delay3.png" />
+    <Resource Include="component\Images\Delay4.png" />
+    <Resource Include="component\Images\Delay5.png" />
+    <Resource Include="component\Images\Delay6.png" />
+    <Resource Include="component\Images\Delay7.png" />
+    <Resource Include="component\Images\Delay8.png" />
+    <Resource Include="component\Images\Delay9.png" />
+    <Resource Include="component\Images\MessageFileWriting.png" />
+    <Resource Include="component\Images\MessageFileWritingOK.png" />
+    <Resource Include="component\Images\MessageNotEnoughSpace.png" />
+    <Resource Include="component\Images\MessagePlay.png" />
+    <Resource Include="component\Images\MessageRecord.png" />
+    <Resource Include="component\Images\MessageReplay.png" />
+    <Resource Include="component\Images\MessageSlow0.125.png" />
+    <Resource Include="component\Images\MessageSlow0.25.png" />
+    <Resource Include="component\Images\MessageSlow0.5.png" />
+    <Resource Include="component\Images\MessageStop.png" />
+  </ItemGroup>
+
 </Project>

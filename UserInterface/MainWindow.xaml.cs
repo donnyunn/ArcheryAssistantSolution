@@ -80,6 +80,11 @@ namespace UserInterface
             }
         }
 
+        private void btnRecordStart_Click(object sender, RoutedEventArgs e)
+        {
+            recordToggle_Click(sender, e);
+        }
+
         private void btnStart_Click(object sender, RoutedEventArgs e)
         {
             StartButton?.Invoke(this, EventArgs.Empty);
@@ -88,6 +93,8 @@ namespace UserInterface
         private void btnPlay_Click(object sender, RoutedEventArgs e)
         {
             PlayButton?.Invoke(this, EventArgs.Empty);
+
+            SetPlayPauseIcon(true);
         }
 
         private void btnBackward_Click(object sender, RoutedEventArgs e)
@@ -196,11 +203,22 @@ namespace UserInterface
         /// </summary>
         public void SetPlayPauseIcon(bool isPaused)
         {
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            //Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            //{
+            //    playIcon.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
+            //    playPauseIcon.Visibility = isPaused ? Visibility.Collapsed : Visibility.Visible;
+            //}));
+            if (btnPlay.Template.FindName("ButtonPlayImage", btnPlay) is Image btnPlayImage)
             {
-                playIcon.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
-                playPauseIcon.Visibility = isPaused ? Visibility.Collapsed : Visibility.Visible;
-            }));
+                if (isPaused)
+                {
+                    btnPlayImage.Source = new BitmapImage(new Uri(@"\component\Images\ButtonPause.png", UriKind.Relative));
+                }
+                else
+                {
+                    btnPlayImage.Source = new BitmapImage(new Uri(@"\component\Images\ButtonPlay.png", UriKind.Relative));
+                }
+            }
         }
 
         /// <summary>

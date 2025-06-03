@@ -142,93 +142,202 @@
     </Window.Resources>
 
     <!-- 메인 레이아웃 그리드 -->
-    <Grid>
-        <!-- 수평 스택 패널 -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10">
-
-            <!-- 종료 버튼 -->
-            <Button x:Name="btnClose" Content="종료" Style="{StaticResource CircleButtonStyle}" 
-                    Click="btnClose_Click" Margin="10,0"/>
-
-            <!-- 딜레이 컨트롤 그룹 -->
-            <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="20,0">
-                <!-- 숫자 표시 텍스트박스 -->
-                <Border Background="Black" Width="60" Height="80" BorderBrush="Gray" BorderThickness="1">
-                    <TextBlock x:Name="txtDelay" Text="0" Foreground="Red" FontWeight="Bold" 
-                             FontSize="48" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-
-                <!-- 슬라이더 -->
-                <Slider x:Name="sliderDelay" Width="180" Height="60" Margin="0,10,0,0"
-                        Minimum="0" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
-                        ValueChanged="sliderDelay_ValueChanged" 
-                        TickPlacement="BottomRight"
-                        AutoToolTipPlacement="BottomRight" 
-                        AutoToolTipPrecision="0"
-                        Style="{StaticResource LargeThumbSliderStyle}"/>
-            </StackPanel>
-
-            <!-- 시작 버튼 -->
-            <Button x:Name="btnStart" Content="시작" Style="{StaticResource CircleButtonStyle}" 
-                    Click="btnStart_Click" Margin="10,0"/>
-
-            <!-- 컨트롤 버튼 그룹 -->
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
-                <!-- 뒤로가기 버튼 -->
-                <Button x:Name="btnBackward" Style="{StaticResource MediaButtonStyle}" 
-                        Margin="5,0" Click="btnBackward_Click" PreviewMouseDown="btnBackward_PreviewMouseDown" 
-                        PreviewMouseUp="btnBackward_PreviewMouseUp">
-                    <Path Data="M0,25 L20,0 L20,50 Z M20,25 L40,0 L40,50 Z" Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
-                </Button>
-
-                <!-- 재생/일시정지 버튼 -->
-                <Button x:Name="btnPlay" Style="{StaticResource MediaButtonStyle}" 
-                        Margin="5,0" Click="btnPlay_Click">
-                    <Grid>
-                        <Path x:Name="playPauseIcon" Data="M0,0 L20,0 L20,50 L0,50 Z M30,0 L50,0 L50,50 L30,50 Z" 
-                              Fill="Black" Stretch="Uniform" Width="20" Height="20" Visibility="Collapsed"/>
-                        <Path x:Name="playIcon" Data="M0,0 L40,25 L0,50 Z" 
-                              Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
-                    </Grid>
-                </Button>
-
-                <!-- 앞으로가기 버튼 -->
-                <Button x:Name="btnForward" Style="{StaticResource MediaButtonStyle}" 
-                        Margin="5,0" Click="btnForward_Click" PreviewMouseDown="btnForward_PreviewMouseDown" 
-                        PreviewMouseUp="btnForward_PreviewMouseUp">
-                    <Path Data="M0,0 L0,50 L20,25 Z M20,0 L20,50 L40,25 Z" Fill="Black" Stretch="Uniform" Width="20" Height="20"/>
-                </Button>
-            </StackPanel>
-
-            <!-- Slow 버튼 -->
-            <Button x:Name="btnSlow" Content="Slow" Style="{StaticResource CircleButtonStyle}"
-                    Click="btnSlow_Click" Margin="10,0"/>
-            
-        </StackPanel>
-        
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="30">
+    <Grid Background="#e6e6e6">
+        <StackPanel Orientation="Horizontal">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="250"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                
-                <!-- 녹화 토글 스위치 -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="20, 0, 20, 0">
-                    <TextBlock Text="녹화" VerticalAlignment="Center" FontSize="12" Margin="10,0,5,0"/>
+                <StackPanel Grid.Column="0" Orientation="Vertical">
                     <Grid>
-                        <Border x:Name="recordToggleBorder" Style="{StaticResource ToggleSwitchStyle}" MouseUp="recordToggle_Click">
-                            <TextBlock x:Name="recordToggleText" Text="Off  " Foreground="White" 
-                         FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" 
-                         Margin="0,0,5,0"/>
-                        </Border>
-                        <Ellipse x:Name="recordToggleKnob" Style="{StaticResource ToggleSwitchKnobStyle}" 
-                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0" MouseUp="recordToggle_Click"/>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Margin="10,20,10,10">
+                            <TextBlock Text="지연재생" 
+                                       Foreground="Black"
+                                       FontWeight="Bold"
+                                       FontSize="36"
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"
+                                       FontFamily="맑은 고딕"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Margin="10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="10,10,5,10">
+                                    <Button x:Name="btnRecordStart"
+                                            Click="btnRecordStart_Click"
+                                            Width="200" Height="200"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Grid>
+                                                    <Image x:Name="ButtonRecordImage" Source="/ButtonRecord.png" Stretch="Fill"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Margin="5,10,10,10">
+                                    <Button x:Name="btnStart"
+                                            Click="btnStart_Click"
+                                            Width="200" Height="200"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Grid>
+                                                    <Image x:Name="ButtonRecordImage" Source="/ButtonStart.png" Stretch="Fill"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Grid>
                 </StackPanel>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="20, 0, 20, 0">
-                    <TextBlock x:Name="statusMessage" Text=" " VerticalAlignment="Center" HorizontalAlignment="Left" FontSize="12" />
+
+                <StackPanel Grid.Column="1" Orientation="Vertical">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="100"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="20, 0, 20, 0">
+                            <TextBlock Text="녹화" VerticalAlignment="Center" FontSize="12" Margin="10,0,5,0"/>
+                            <Grid>
+                                <Border x:Name="recordToggleBorder" Style="{StaticResource ToggleSwitchStyle}" MouseUp="recordToggle_Click">
+                                    <TextBlock x:Name="recordToggleText" Text="Off  " Foreground="White" 
+                                               FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" 
+                                               Margin="0,0,5,0"/>
+                                </Border>
+                                <Ellipse x:Name="recordToggleKnob" Style="{StaticResource ToggleSwitchKnobStyle}" 
+                                         HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0" MouseUp="recordToggle_Click"/>
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Margin="10">
+                            <Border Background="Black" Width="200" Height="80" BorderBrush="Gray" BorderThickness="1" CornerRadius="15">
+                                <TextBlock x:Name="txtDelay" Text="0" Foreground="Yellow" FontWeight="Bold"
+                                           FontSize="44" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           FontFamily="#Bold LED Board-7"/>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Grid.Row="2" Margin="10,20,10,10">
+                            <Slider x:Name="sliderDelay" Width="200" Height="80" Margin="0,10,0,0"
+                                    Minimum="0" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                                    ValueChanged="sliderDelay_ValueChanged" 
+                                    TickPlacement="BottomRight"
+                                    AutoToolTipPlacement="BottomRight" 
+                                    AutoToolTipPrecision="0"
+                                    Style="{StaticResource LargeThumbSliderStyle}"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Vertical">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Margin="10,20,10,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="170"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="돌려보기" 
+                                               Foreground="Black"
+                                               FontWeight="Bold"
+                                               FontSize="36"
+                                               HorizontalAlignment="Center" 
+                                               VerticalAlignment="Center"
+                                               FontFamily="맑은 고딕"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" VerticalAlignment="Bottom">
+                                    <TextBlock Text="슬로우모션" 
+                                               Foreground="#00B0F0"
+                                               FontWeight="Bold"
+                                               FontSize="28"
+                                               HorizontalAlignment="Center" 
+                                               VerticalAlignment="Center"
+                                               FontFamily="맑은 고딕"/>
+                                </StackPanel>
+                            </Grid>
+                            
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Margin="0,10,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="160"/>
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="btnBackward"
+                                        Click="btnBackward_Click"
+                                        Width="140" Height="140"
+                                        Grid.Column="0">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Image Source="/ButtonRewind.png" Stretch="Fill"/>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+                                <Button x:Name="btnPlay"
+                                        Click="btnPlay_Click"
+                                        Width="140" Height="140"
+                                        Grid.Column="1">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Image x:Name="ButtonPlayImage" Source="/ButtonPlay.png" Stretch="Fill"/>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+                                <Button x:Name="btnForward"
+                                        Click="btnForward_Click"
+                                        Width="140" Height="140"
+                                        Grid.Column="2">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Image Source="/ButtonFastforward.png" Stretch="Fill"/>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+                                <Button x:Name="btnSlow"
+                                        Click="btnSlow_Click"
+                                        Width="140" Height="140"
+                                        Grid.Column="3">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Image x:Name="ButtonSlowImage" Source="/ButtonSlow.png" Stretch="Fill"/>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="2" Margin="10,0,0,0" HorizontalAlignment="Left">
+                            <Border Background="Black" Width="570" Height="80" BorderBrush="Gray" BorderThickness="1" CornerRadius="15">
+                                <TextBlock x:Name="statusMessage" Text="PLAY" Foreground="#00FF00" FontWeight="Bold"
+                                           FontSize="38" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           FontFamily="#Bold LED Board-7"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Grid>
         </StackPanel>
