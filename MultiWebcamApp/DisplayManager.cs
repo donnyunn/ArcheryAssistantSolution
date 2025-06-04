@@ -94,6 +94,7 @@ namespace MultiWebcamApp
                     webcamDisplay.Width = monitor1.Bounds.Width;
                     webcamDisplay.Height = monitor1.Bounds.Height;
                     webcamDisplay.setMenuGridVerticalalignment(VerticalAlignment.Bottom);
+                    webcamDisplay.setMessagePanelVerticalalignment(VerticalAlignment.Top);
 
                     var monitor2 = orderedScreens[1];
                     _uiDisplay.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -114,6 +115,7 @@ namespace MultiWebcamApp
                     webcamDisplay.Width = monitor3.Bounds.Width;
                     webcamDisplay.Height = monitor3.Bounds.Height;
                     webcamDisplay.setMenuGridVerticalalignment(VerticalAlignment.Top);
+                    webcamDisplay.setMessagePanelVerticalalignment(VerticalAlignment.Bottom);
 
                     var monitor0 = orderedScreens[3];
                     _pressureDisplay.WindowStartupLocation = WindowStartupLocation.Manual;

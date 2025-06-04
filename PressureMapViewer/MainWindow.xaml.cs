@@ -544,8 +544,8 @@ namespace PressureMapViewer
             ForefootGauge.Width = maxWidth * leftPercent / 100;
             HeelGauge.Width = maxWidth * rightPercent / 100;
 
-            LeftPercentText.Text = $"{Math.Round(leftHeelPercent)}%";
-            RightPercentText.Text = $"{Math.Round(rightHeelPercent)}%";
+            LeftPercentText.Text = $"{Math.Round(leftHeelPercent)}";
+            RightPercentText.Text = $"{Math.Round(rightHeelPercent)}";
             ForefootPercentText.Text = $"{Math.Round(leftPercent)}%";
             HeelPercentText.Text = $"{Math.Round(rightPercent)}%";
             LeftBalanceText.Text = $"{Math.Round(leftPercent)}";
@@ -732,11 +732,11 @@ namespace PressureMapViewer
                 }
             }
 
-            TotalPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(totalPressure)} kpa";
+            TotalPressureText.Text = totalActiveCells < 1 ? "-" : $"{Math.Round(totalPressure/1000, 2), 1:F2}";
             if (!WEIGHT_TEST)
             {
-                LeftPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(leftPressure)} kpa";
-                RightPressureText.Text = totalActiveCells < 1 ? "- kpa" : $"{Math.Round(rightPressure)} kpa";
+                LeftPressureText.Text = totalActiveCells < 1 ? "-" : $"{Math.Round(leftPressure/1000, 2), 1:F2}";
+                RightPressureText.Text = totalActiveCells < 1 ? "-" : $"{Math.Round(rightPressure/1000, 2), 1:F2}";
             }
             else
             {

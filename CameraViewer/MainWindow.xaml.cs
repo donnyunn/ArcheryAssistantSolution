@@ -155,6 +155,11 @@ namespace CameraViewer
             ToolPanel.VerticalAlignment = verticalAlignment;
         }
 
+        public void setMessagePanelVerticalalignment(VerticalAlignment verticalAlignment)
+        {
+            MessagePanel.VerticalAlignment = verticalAlignment;
+        }
+
         #region 터치 이벤트 핸들러
 
         private void Canvas_TouchDown(object sender, TouchEventArgs e)
