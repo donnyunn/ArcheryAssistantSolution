@@ -295,7 +295,7 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid Grid.Column="0" Background="Transparent" MouseDown="SmallCopButton_MouseDown">
-                                    <RadioButton IsChecked="True"
+                                    <RadioButton IsChecked="False"
                                              HorizontalAlignment="Center"
                                              VerticalAlignment="Center"
                                              x:Name="SmallCopButton" Click="SmallCopButton_Click"/>
@@ -325,7 +325,7 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid Grid.Column="0" Background="Transparent" MouseDown="LargeCopButton_MouseDown">
-                                    <RadioButton IsChecked="False"
+                                    <RadioButton IsChecked="True"
                                              HorizontalAlignment="Center"
                                              VerticalAlignment="Center"
                                              x:Name="LargeCopButton" Click="LargeCopButton_Click"/>

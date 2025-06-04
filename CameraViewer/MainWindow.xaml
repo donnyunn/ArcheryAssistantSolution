@@ -241,7 +241,7 @@
                 </GroupBox>
                 <!-- 교체 버튼 -->
                 <Button x:Name="SwapButton"
-                        Content="카메라교체"
+                        Content="카메라전환"
                         Padding="10,5"
                         Background="#40000000"
                         Foreground="White"

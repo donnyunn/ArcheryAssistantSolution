@@ -264,9 +264,9 @@ namespace MultiWebcamApp
             _uiDisplay.SetPlayPauseIcon(isPaused);
         }
 
-        public void UiDisplaySetStatusMessage(string message, System.Windows.Media.Color? color = null)
+        public void UiDisplaySetStatusMessage(string message, System.Windows.Media.Color? color = null, bool blink = false, bool temporary = false)
         {
-            _uiDisplay.SetStatusMessage(message, color);
+            _uiDisplay.SetStatusMessage(message, color, blink, temporary);
         }
 
         #region 이벤트 등록 메서드

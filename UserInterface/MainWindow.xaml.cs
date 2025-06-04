@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Drawing;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -46,6 +47,11 @@ namespace UserInterface
         private bool _isRecording = false;
 
         DispatcherTimer _statusEraserTimer;
+        DispatcherTimer _statusBlinkTimer;
+
+        private string _message = "";
+        private System.Windows.Media.Color? _color = System.Windows.Media.Color.FromRgb(0,0xff,0);
+        private bool _blink = false;
 
         public MainWindow()
         {
@@ -53,6 +59,9 @@ namespace UserInterface
             _statusEraserTimer = new DispatcherTimer();
             _statusEraserTimer.Interval = TimeSpan.FromSeconds(3);
             _statusEraserTimer.Tick += new EventHandler(statusEraserTimer_Elapsed);
+            _statusBlinkTimer = new DispatcherTimer();
+            _statusBlinkTimer.Interval = TimeSpan.FromMilliseconds(500);
+            _statusBlinkTimer.Tick += new EventHandler(statusBlinkTimer_Elapsed);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -63,7 +72,24 @@ namespace UserInterface
         private void statusEraserTimer_Elapsed(object sender, EventArgs e)
         {
             _statusEraserTimer.Stop();
-            statusMessage.Text = "";
+            statusMessage.Text = _message;
+            statusMessage.Foreground = new SolidColorBrush(_color.Value);
+            if (_blink)
+            {
+                _statusBlinkTimer.Start();
+            }
+        }
+
+        private void statusBlinkTimer_Elapsed(object sender, EventArgs e)
+        {
+            if (statusMessage.Visibility != Visibility.Visible)
+            {
+                statusMessage.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                statusMessage.Visibility = Visibility.Hidden;
+            }
         }
 
         #region 이벤트 핸들러
@@ -109,8 +135,6 @@ namespace UserInterface
         private void btnPlay_Click(object sender, RoutedEventArgs e)
         {
             PlayButton?.Invoke(this, EventArgs.Empty);
-
-            SetPlayPauseIcon(true);
         }
 
         private void btnBackward_Click(object sender, RoutedEventArgs e)
@@ -287,12 +311,15 @@ namespace UserInterface
             }
         }
 
-        public void SetStatusMessage(string message, Color? color = null)
+        public void SetStatusMessage(string message, System.Windows.Media.Color? color = null, bool blink = false, bool temporary = false)
         {
-            //_statusEraserTimer.Stop();
+            _statusEraserTimer.Stop();
+            _statusBlinkTimer.Stop();
+
             statusMessage.Dispatcher.Invoke(() =>
             {
                 statusMessage.Text = message;
+                statusMessage.Visibility = Visibility.Visible;
 
                 if (color.HasValue)
                 {
@@ -300,10 +327,25 @@ namespace UserInterface
                 }
                 else
                 {
-                    statusMessage.Foreground = new SolidColorBrush(Colors.Green);
+                    statusMessage.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0, 0xff, 0));
                 }
             });
             //_statusEraserTimer.Start();
+            if (blink)
+            {
+                _statusBlinkTimer.Start();
+            }
+
+            if (temporary)
+            {
+                _statusEraserTimer.Start();
+            }
+            else
+            {
+                _message = message;
+                _color = color;
+                _blink = blink;
+            }
         }
 
         #endregion

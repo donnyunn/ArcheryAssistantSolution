@@ -111,9 +111,9 @@ namespace MultiWebcamApp
 
             recorder = new ScreenRecordingLib.ScreenRecorder();
 
-            recorder.OnStatusMessage += (message, color) =>
+            recorder.OnStatusMessage += (message, color, blink, temporary) =>
             {
-                _displayManager.UiDisplaySetStatusMessage(message, color);
+                _displayManager.UiDisplaySetStatusMessage(message, color, blink, temporary);
             };
         }
 
@@ -555,14 +555,20 @@ namespace MultiWebcamApp
                 // 녹화 버튼이 체크되어 있으면 녹화 시작
                 if (_isRecording)
                 {
-                    //recorder.StartRecording();
-                    _recorderTimer.Interval = _delaySeconds * 1000;
-                    _recorderTimer.Start();
-                    _displayManager.UiDisplaySetStatusMessage("Record", Colors.Red);
+                    _displayManager.UiDisplaySetStatusMessage("Record", Colors.Red, true);
+                    if (_delaySeconds == 0)
+                    {
+                        recorder.StartRecording();
+                    }
+                    else
+                    {
+                        _recorderTimer.Interval = _delaySeconds * 1000;
+                        _recorderTimer.Start();
+                    }
                 }
                 else
                 {
-                    _displayManager.UiDisplaySetStatusMessage("PLAY", System.Windows.Media.Color.FromRgb(0,0xff,0));
+                    _displayManager.UiDisplaySetStatusMessage("PLAY", System.Windows.Media.Color.FromRgb(0,0xff,0), true);
                 }
                 //_displayManager.UiDisplaySetStatusMessage("관찰을 시작합니다.");
             }

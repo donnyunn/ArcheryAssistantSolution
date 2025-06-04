@@ -85,7 +85,7 @@ namespace PressureMapViewer
         {
             InitializeComponent();
             InitializeRendering();
-            InitializeHeatmapPalette(256);
+            InitializeHeatmapPalette(500);
             InitializeCOPIndicator();
             InitializeCharts();
             InitializeFootOutlineGuides();
@@ -191,8 +191,8 @@ namespace PressureMapViewer
         {
             copIndicator = new Ellipse
             {
-                Width = 10,
-                Height = 10,
+                Width = 30,
+                Height = 30,
                 Fill = Brushes.Red,
                 Stroke = Brushes.Red,
                 StrokeThickness = 2
