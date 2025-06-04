@@ -119,8 +119,10 @@ namespace MultiWebcamApp
                 _displayManager.UiDisplaySetStatusMessage(message, color, blink, temporary);
             };
 
-            _logger = new Logger("history.log");
-            string logFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "history.log");
+            string machineName = Environment.MachineName;
+            string logFileName = $"{machineName}_history.log";
+            _logger = new Logger(logFileName);
+            string logFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), logFileName);
             _driverUploader = new GoogleDriveUploader(logFilePath, _logger);
         }
 
