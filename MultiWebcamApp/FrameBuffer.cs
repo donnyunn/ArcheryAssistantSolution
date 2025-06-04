@@ -5,7 +5,7 @@ namespace MultiWebcamApp
     public class FrameBuffer
     {
         private readonly List<FrameData> _frames;
-        private readonly int _maxSize = 60 * 180; // 180초 @ 60fps
+        private readonly int _maxSize = 60 * 150; // 150초 @ 60fps
         private int _playPosition;
 
         public FrameBuffer()

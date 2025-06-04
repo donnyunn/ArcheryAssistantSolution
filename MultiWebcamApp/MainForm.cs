@@ -63,7 +63,8 @@ namespace MultiWebcamApp
 
         private System.Windows.Forms.Timer _recorderTimer;
 
-        public Logger _logger = new Logger();
+        public Logger _logger;
+        private GoogleDriveUploader _driverUploader;
 
         public MainForm()
         {
@@ -117,9 +118,13 @@ namespace MultiWebcamApp
             {
                 _displayManager.UiDisplaySetStatusMessage(message, color, blink, temporary);
             };
+
+            _logger = new Logger("history.log");
+            string logFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "history.log");
+            _driverUploader = new GoogleDriveUploader(logFilePath, _logger);
         }
 
-        private void MainForm_Load(object sender, EventArgs e)
+        private async void MainForm_Load(object sender, EventArgs e)
         {
             _displayManager.ConfigureDisplayPositions();
             _displayManager.ShowDisplay();
@@ -132,6 +137,8 @@ namespace MultiWebcamApp
             this.WindowState = FormWindowState.Minimized;
 
             _logger.LogActivity("Device On");
+
+            await _driverUploader.UploadLogFileAsync();
         }
 
         private void InitializeMainTimer()

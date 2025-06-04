@@ -271,7 +271,8 @@
                 Background="#00000000"
                 BorderThickness="0">
             <Grid>
-                <TextBlock Text="L"
+                <TextBlock x:Name="textL"
+                           Text="L"
                            FontSize="96"
                            FontWeight="Bold"
                            Foreground="White"
@@ -279,7 +280,8 @@
                            HorizontalAlignment="Left"
                            VerticalAlignment="Bottom"
                            Margin="10,-10"/>
-                <TextBlock Text="R"
+                <TextBlock x:Name="textR"
+                           Text="R"
                            FontSize="96"
                            FontWeight="Bold"
                            Foreground="White"

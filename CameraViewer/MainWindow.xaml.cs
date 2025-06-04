@@ -467,13 +467,22 @@ namespace CameraViewer
 
         private void ViewModeButton_Checked(object sender, RoutedEventArgs e)
         {
+            if (textL == null || textR == null)
+            {
+                return;
+            }
+
             if (sender == NormalViewButton)
             {
                 _mirrorMode = false;
+                textL.HorizontalAlignment = HorizontalAlignment.Right;
+                textR.HorizontalAlignment = HorizontalAlignment.Left;
             }
             else if (sender == MirrorViewButton)
             {
                 _mirrorMode = true;
+                textL.HorizontalAlignment = HorizontalAlignment.Left;
+                textR.HorizontalAlignment = HorizontalAlignment.Right;
             }
         }
 

@@ -70,7 +70,7 @@ namespace ScreenRecordingLib
         public delegate void MessageEventHandler(string message, System.Windows.Media.Color? color = null, bool blink = false, bool temporary = false);
         public event MessageEventHandler OnStatusMessage;
 
-        private const int FILE_SPLIT_INTERVAL_MINUTES = 3;
+        private const int FILE_SPLIT_INTERVAL_MINUTES = 10;
         private DateTime _recordingStartTime;
         private DateTime _lastFileSplitTime;
         private string _currentOutputPath;
@@ -254,32 +254,36 @@ namespace ScreenRecordingLib
                     if (!_isRecording) return;
                     _isRecording = false;
 
-                    try
-                    {
-                        //SendStatusMessage("저장 중입니다...");
-                        SendStatusMessage("File Writing", Colors.Red, true, true);
+                    //SendStatusMessage("저장 중입니다...");
+                    SendStatusMessage("File Writing", Colors.Red, true, true);
 
-                        if (_captureThread != null && _captureThread.IsAlive)
+                    Task.Run(() =>
+                    {
+                        try
                         {
-                            if (!_captureThread.Join(3000))
+
+                            if (_captureThread != null && _captureThread.IsAlive)
                             {
-                                _captureThread.Interrupt();
+                                if (!_captureThread.Join(3000))
+                                {
+                                    _captureThread.Interrupt();
+                                }
                             }
+
+                            CloseFFmpegProcess();
+                            SaveRecordingToArchive();
+                            CleanupResources();
+
+                            Console.WriteLine("Recording stopped successfully");
                         }
-
-                        CloseFFmpegProcess();
-                        SaveRecordingToArchive();
-                        CleanupResources();
-
-                        Console.WriteLine("Recording stopped successfully");
-                    }
-                    catch (Exception ex)
-                    {
-                        //SendStatusMessage($"녹화 종료 중 오류: {ex.Message}");
-                        SendStatusMessage("Not Enough Space", Colors.Yellow, temporary: true);
-                        Console.WriteLine($"Error stopping recording: {ex.Message}");
-                        throw;
-                    }
+                        catch (Exception ex)
+                        {
+                            //SendStatusMessage($"녹화 종료 중 오류: {ex.Message}");
+                            SendStatusMessage("Not Enough Space", Colors.Yellow, temporary: true);
+                            Console.WriteLine($"Error stopping recording: {ex.Message}");
+                            throw;
+                        }
+                    });
                 }
             }
         }
@@ -414,26 +418,30 @@ namespace ScreenRecordingLib
 
         private void SplitRecordingFile()
         {
-            try
-            {
-                //SendStatusMessage("녹화 파일 분할 중...");
-                SendStatusMessage("File Writing", Colors.Red, true, true);
-                CloseFFmpegProcess();
-                SaveRecordingToArchive();
+            //SendStatusMessage("녹화 파일 분할 중...");
+            SendStatusMessage("File Writing", Colors.Red, true, true);
 
-                _segmentCounter++;
-                _lastFileSplitTime = DateTime.Now;
-                StartFFmpegProcess();
-
-                //SendStatusMessage($"녹화 계속 진행 중... (세그먼트 {_segmentCounter})");
-                SendStatusMessage("File Writing OK", System.Windows.Media.Color.FromRgb(0,0xff,0), temporary: true);
-            }
-            catch (Exception ex)
+            Task.Run(() =>
             {
-                Console.WriteLine($"Error splitting recording file: {ex.Message}");
-                //SendStatusMessage($"파일 분할 중 오류: {ex.Message}");
-                SendStatusMessage("Not Enough Space", Colors.Yellow, temporary: true);
-            }
+                try
+                {
+                    CloseFFmpegProcess();
+                    SaveRecordingToArchive();
+
+                    _segmentCounter++;
+                    _lastFileSplitTime = DateTime.Now;
+                    StartFFmpegProcess();
+
+                    //SendStatusMessage($"녹화 계속 진행 중... (세그먼트 {_segmentCounter})");
+                    SendStatusMessage("File Writing OK", System.Windows.Media.Color.FromRgb(0, 0xff, 0), temporary: true);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error splitting recording file: {ex.Message}");
+                    //SendStatusMessage($"파일 분할 중 오류: {ex.Message}");
+                    SendStatusMessage("Not Enough Space", Colors.Yellow, temporary: true);
+                }
+            });
         }
 
         private void SaveRecordingToArchive()
