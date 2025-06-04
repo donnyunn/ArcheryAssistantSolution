@@ -226,17 +226,20 @@ namespace UserInterface
             //    playIcon.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
             //    playPauseIcon.Visibility = isPaused ? Visibility.Collapsed : Visibility.Visible;
             //}));
-            if (btnPlay.Template.FindName("ButtonPlayImage", btnPlay) is Image btnPlayImage)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
             {
-                if (!isPaused)
+                if (btnPlay.Template.FindName("ButtonPlayImage", btnPlay) is Image btnPlayImage)
                 {
-                    btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPause.png", UriKind.Relative));
+                    if (!isPaused)
+                    {
+                        btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPause.png", UriKind.Relative));
+                    }
+                    else
+                    {
+                        btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPlay.png", UriKind.Relative));
+                    }
                 }
-                else
-                {
-                    btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPlay.png", UriKind.Relative));
-                }
-            }
+            }));
         }
 
         /// <summary>
@@ -284,14 +287,23 @@ namespace UserInterface
             }
         }
 
-        public void SetStatusMessage(string message)
+        public void SetStatusMessage(string message, Color? color = null)
         {
-            _statusEraserTimer.Stop();
+            //_statusEraserTimer.Stop();
             statusMessage.Dispatcher.Invoke(() =>
             {
                 statusMessage.Text = message;
+
+                if (color.HasValue)
+                {
+                    statusMessage.Foreground = new SolidColorBrush(color.Value);
+                }
+                else
+                {
+                    statusMessage.Foreground = new SolidColorBrush(Colors.Green);
+                }
             });
-            _statusEraserTimer.Start();
+            //_statusEraserTimer.Start();
         }
 
         #endregion

@@ -106,9 +106,9 @@ namespace MultiWebcamApp
 
             recorder = new ScreenRecordingLib.ScreenRecorder();
 
-            recorder.OnStatusMessage += (message) =>
+            recorder.OnStatusMessage += (message, color) =>
             {
-                _displayManager.UiDisplaySetStatusMessage(message);
+                _displayManager.UiDisplaySetStatusMessage(message, color);
             };
         }
 
@@ -545,12 +545,18 @@ namespace MultiWebcamApp
                 if (_isRecording)
                 {
                     recorder.StartRecording();
+                    _displayManager.UiDisplaySetStatusMessage("Record", Colors.Red);
                 }
-                _displayManager.UiDisplaySetStatusMessage("관찰을 시작합니다.");
+                else
+                {
+                    _displayManager.UiDisplaySetStatusMessage("PLAY", System.Windows.Media.Color.FromRgb(0,0xff,0));
+                }
+                //_displayManager.UiDisplaySetStatusMessage("관찰을 시작합니다.");
             }
             else
             {
-                _displayManager.UiDisplaySetStatusMessage("대기 상태로 돌아갑니다.");
+                //_displayManager.UiDisplaySetStatusMessage("대기 상태로 돌아갑니다.");
+                _displayManager.UiDisplaySetStatusMessage("Stop", Colors.White);
                 // 녹화 중이면 녹화 중지
                 if (_isRecording)
                 {
@@ -585,12 +591,14 @@ namespace MultiWebcamApp
                 if (_isPaused)
                 {
                     _mode = OperationMode.Stop;
-                    _displayManager.UiDisplaySetStatusMessage("재생을 멈춥니다.");
+                    //_displayManager.UiDisplaySetStatusMessage("재생을 멈춥니다.");
+                    _displayManager.UiDisplaySetStatusMessage("Stop", Colors.White);
                 }
                 else
                 {
                     _mode = OperationMode.Replay;
-                    _displayManager.UiDisplaySetStatusMessage("다시보기를 시작합니다.");
+                    //_displayManager.UiDisplaySetStatusMessage("다시보기를 시작합니다.");
+                    _displayManager.UiDisplaySetStatusMessage("Replay", Colors.Yellow);
                 }
                 UpdatePlayPauseButton();
 
@@ -657,6 +665,9 @@ namespace MultiWebcamApp
                 _slowButton.Text = _isSlowMode ? $" \nSlow\nx{1.0/_slowLevel,1:F2}" : "Slow";
 
                 _displayManager.UiDisplaySetSlowButtonText(_slowLevel);
+                
+                string slowMsg = _isSlowMode ? $"Slow x{1.0 / _slowLevel,1:F3}" : "Slow x1";
+                _displayManager.UiDisplaySetStatusMessage(slowMsg, System.Windows.Media.Color.FromRgb(0, 0xB0, 0xF0));
             }
         }
 

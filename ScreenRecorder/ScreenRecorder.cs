@@ -9,6 +9,7 @@ using System.IO;
 using System.Drawing;
 using System.Collections.Generic;
 using System.IO.Pipes;
+using System.Windows.Media;
 
 namespace ScreenRecordingLib
 {
@@ -66,7 +67,7 @@ namespace ScreenRecordingLib
         private readonly object _lockObject = new object();
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
-        public delegate void MessageEventHandler(string message);
+        public delegate void MessageEventHandler(string message, System.Windows.Media.Color? color = null);
         public event MessageEventHandler OnStatusMessage;
 
         private const int FILE_SPLIT_INTERVAL_MINUTES = 1;
@@ -217,7 +218,8 @@ namespace ScreenRecordingLib
                         _lastFileSplitTime = _recordingStartTime;
                         _segmentCounter = 1;
 
-                        SendStatusMessage("녹화가 시작되었습니다.");
+                        //SendStatusMessage("녹화가 시작되었습니다.");
+                        SendStatusMessage("Play", Colors.Red);
                         StartFFmpegProcess();
 
                         _captureThread = new Thread(CaptureLoop)
@@ -234,7 +236,8 @@ namespace ScreenRecordingLib
                     {
                         _isRecording = false;
                         CleanupResources();
-                        SendStatusMessage($"녹화 시작 실패: {ex.Message}");
+                        //SendStatusMessage($"녹화 시작 실패: {ex.Message}");
+                        SendStatusMessage("Not Enough Space", Colors.Yellow);
                         Console.WriteLine($"Failed to start recording: {ex.Message}");
                         throw;
                     }
@@ -253,7 +256,8 @@ namespace ScreenRecordingLib
 
                     try
                     {
-                        SendStatusMessage("저장 중입니다...");
+                        //SendStatusMessage("저장 중입니다...");
+                        SendStatusMessage("File Writing", Colors.Red);
 
                         if (_captureThread != null && _captureThread.IsAlive)
                         {
@@ -271,7 +275,8 @@ namespace ScreenRecordingLib
                     }
                     catch (Exception ex)
                     {
-                        SendStatusMessage($"녹화 종료 중 오류: {ex.Message}");
+                        //SendStatusMessage($"녹화 종료 중 오류: {ex.Message}");
+                        SendStatusMessage("Not Enough Space", Colors.Yellow);
                         Console.WriteLine($"Error stopping recording: {ex.Message}");
                         throw;
                     }
@@ -396,7 +401,8 @@ namespace ScreenRecordingLib
             }
             catch (Exception ex)
             {
-                SendStatusMessage($"녹화 중 오류: {ex.Message}");
+                //SendStatusMessage($"녹화 중 오류: {ex.Message}");
+                SendStatusMessage("Not Enough Space", Colors.Yellow);
                 Console.WriteLine($"Error in capture loop: {ex.Message}");
             }
             finally
@@ -410,7 +416,8 @@ namespace ScreenRecordingLib
         {
             try
             {
-                SendStatusMessage("녹화 파일 분할 중...");
+                //SendStatusMessage("녹화 파일 분할 중...");
+                SendStatusMessage("File Writing", Colors.Red);
                 CloseFFmpegProcess();
                 SaveRecordingToArchive();
 
@@ -418,12 +425,14 @@ namespace ScreenRecordingLib
                 _lastFileSplitTime = DateTime.Now;
                 StartFFmpegProcess();
 
-                SendStatusMessage($"녹화 계속 진행 중... (세그먼트 {_segmentCounter})");
+                //SendStatusMessage($"녹화 계속 진행 중... (세그먼트 {_segmentCounter})");
+                SendStatusMessage("File Writing OK", Colors.Green);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error splitting recording file: {ex.Message}");
-                SendStatusMessage($"파일 분할 중 오류: {ex.Message}");
+                //SendStatusMessage($"파일 분할 중 오류: {ex.Message}");
+                SendStatusMessage("Not Enough Space", Colors.Yellow);
             }
         }
 
@@ -450,13 +459,14 @@ namespace ScreenRecordingLib
             catch (Exception ex)
             {
                 Console.WriteLine($"Error saving recording to archive: {ex.Message}");
-                SendStatusMessage($"파일 저장 중 오류: {ex.Message}");
+                //SendStatusMessage($"파일 저장 중 오류: {ex.Message}");
+                SendStatusMessage("Not Enough Space", Colors.Yellow);
             }
         }
 
-        private void SendStatusMessage(string message)
+        private void SendStatusMessage(string message, System.Windows.Media.Color? color = null)
         {
-            OnStatusMessage?.Invoke(message);
+            OnStatusMessage?.Invoke(message, color);
             Console.WriteLine($"Status: {message}");
         }
 

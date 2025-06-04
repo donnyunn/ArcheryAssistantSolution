@@ -346,7 +346,7 @@
                         </StackPanel>
                         <StackPanel Grid.Row="2" Margin="10,0,0,0" HorizontalAlignment="Left">
                             <Border Background="Black" Width="570" Height="80" BorderBrush="Gray" BorderThickness="1" CornerRadius="15">
-                                <TextBlock x:Name="statusMessage" Text="PLAY" Foreground="#00FF00" FontWeight="Bold"
+                                <TextBlock x:Name="statusMessage" Text="Stop" Foreground="#FFFFFF" FontWeight="Bold"
                                            FontSize="38" HorizontalAlignment="Center" VerticalAlignment="Center"
                                            FontFamily="#Bold LED Board-7"/>
                             </Border>
