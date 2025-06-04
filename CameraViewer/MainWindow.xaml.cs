@@ -147,6 +147,14 @@ namespace CameraViewer
             Canvas.SetTop(DrawingCanvas, top);
         }
 
+        public void setMenuGridVerticalalignment(VerticalAlignment verticalAlignment)
+        {
+            MenuGrid0.VerticalAlignment = verticalAlignment;
+            MenuGrid1.VerticalAlignment = verticalAlignment;
+            MenuGrid2.VerticalAlignment = verticalAlignment;
+            ToolPanel.VerticalAlignment = verticalAlignment;
+        }
+
         #region 터치 이벤트 핸들러
 
         private void Canvas_TouchDown(object sender, TouchEventArgs e)

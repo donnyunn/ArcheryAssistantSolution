@@ -20,7 +20,7 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Grid Grid.Column="0" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
+            <Grid x:Name="MenuGrid0" Grid.Column="0" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
                 <!--<TextBlock x:Name="FPSText"
                            VerticalAlignment="Top"
                            HorizontalAlignment="Left"
@@ -41,7 +41,7 @@
                            Background="#00000000"
                            Opacity="1"/>
             </Grid>
-            <Grid Grid.Column="1" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
+            <Grid x:Name="MenuGrid1" Grid.Column="1" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
                 <TextBlock x:Name="StatusText"
                            VerticalAlignment="Bottom"
                            HorizontalAlignment="Left"
@@ -52,7 +52,7 @@
                            Background="#00000000"
                            Opacity="1"/>
             </Grid>
-            <Grid Grid.Column="2" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
+            <Grid x:Name="MenuGrid2" Grid.Column="2" Height="108" VerticalAlignment="Top" Background="#80000000" Opacity="0.7">
                 <TextBlock x:Name="SlowStatusText"
                            VerticalAlignment="Bottom"
                            HorizontalAlignment="Left"                           
