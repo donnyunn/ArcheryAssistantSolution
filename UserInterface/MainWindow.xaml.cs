@@ -87,7 +87,23 @@ namespace UserInterface
 
         private void btnStart_Click(object sender, RoutedEventArgs e)
         {
+            btnStartGrid.Visibility = Visibility.Collapsed;
+            btnStop.Visibility = Visibility.Visible;
+
             StartButton?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void btnStop_Click(object sender, RoutedEventArgs e)
+        {
+            btnStartGrid.Visibility = Visibility.Visible;
+            btnStop.Visibility = Visibility.Collapsed;
+
+            StartButton?.Invoke(this, EventArgs.Empty);
+
+            if (_isRecording)
+            {
+                recordToggle_Click(sender, e);
+            }
         }
 
         private void btnPlay_Click(object sender, RoutedEventArgs e)
@@ -138,6 +154,8 @@ namespace UserInterface
                     );
 
                     RecordToggle?.Invoke(this, args);
+
+                    btnStart_Click(sender, e);
                 }
             }
             else
@@ -210,13 +228,13 @@ namespace UserInterface
             //}));
             if (btnPlay.Template.FindName("ButtonPlayImage", btnPlay) is Image btnPlayImage)
             {
-                if (isPaused)
+                if (!isPaused)
                 {
-                    btnPlayImage.Source = new BitmapImage(new Uri(@"\component\Images\ButtonPause.png", UriKind.Relative));
+                    btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPause.png", UriKind.Relative));
                 }
                 else
                 {
-                    btnPlayImage.Source = new BitmapImage(new Uri(@"\component\Images\ButtonPlay.png", UriKind.Relative));
+                    btnPlayImage.Source = new BitmapImage(new Uri(@"component\Images\ButtonPlay.png", UriKind.Relative));
                 }
             }
         }

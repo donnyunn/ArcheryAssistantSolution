@@ -165,8 +165,8 @@
                                        VerticalAlignment="Center"
                                        FontFamily="맑은 고딕"/>
                         </StackPanel>
-                        <StackPanel Grid.Row="1" Margin="10">
-                            <Grid>
+                        <StackPanel Grid.Row="1" Margin="10" x:Name="btnStartPanel">
+                            <Grid x:Name="btnStartGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -179,7 +179,7 @@
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <Grid>
-                                                    <Image x:Name="ButtonRecordImage" Source="/ButtonRecord.png" Stretch="Fill"/>
+                                                    <Image x:Name="ButtonRecordImage" Source="component\Images\ButtonRecord.png" Stretch="Fill"/>
                                                 </Grid>
                                             </ControlTemplate>
                                         </Button.Template>
@@ -194,13 +194,26 @@
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <Grid>
-                                                    <Image x:Name="ButtonRecordImage" Source="/ButtonStart.png" Stretch="Fill"/>
+                                                    <Image x:Name="ButtonRecordImage" Source="component\Images\ButtonStart.png" Stretch="Fill"/>
                                                 </Grid>
                                             </ControlTemplate>
                                         </Button.Template>
                                     </Button>
                                 </StackPanel>
                             </Grid>
+                            <Button x:Name="btnStop"
+                                    Click="btnStop_Click"
+                                    Width="410" Height="200"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Visibility="Collapsed" Margin="10">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Grid>
+                                            <Image Source="component\Images\ButtonStop.png" Stretch="Fill"/>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
                         </StackPanel>
                     </Grid>
                 </StackPanel>
@@ -213,7 +226,8 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="20, 0, 20, 0">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="20, 0, 20, 0"
+                                    x:Name="recordTogglePanel" Visibility="Collapsed">
                             <TextBlock Text="녹화" VerticalAlignment="Center" FontSize="12" Margin="10,0,5,0"/>
                             <Grid>
                                 <Border x:Name="recordToggleBorder" Style="{StaticResource ToggleSwitchStyle}" MouseUp="recordToggle_Click">
@@ -294,7 +308,7 @@
                                         Grid.Column="0">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
-                                            <Image Source="/ButtonRewind.png" Stretch="Fill"/>
+                                            <Image Source="component\Images\ButtonRewind.png" Stretch="Fill"/>
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
@@ -304,7 +318,7 @@
                                         Grid.Column="1">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
-                                            <Image x:Name="ButtonPlayImage" Source="/ButtonPlay.png" Stretch="Fill"/>
+                                            <Image x:Name="ButtonPlayImage" Source="component\Images\ButtonPlay.png" Stretch="Fill"/>
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
@@ -314,7 +328,7 @@
                                         Grid.Column="2">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
-                                            <Image Source="/ButtonFastforward.png" Stretch="Fill"/>
+                                            <Image Source="component\Images\ButtonFastforward.png" Stretch="Fill"/>
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
@@ -324,7 +338,7 @@
                                         Grid.Column="3">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
-                                            <Image x:Name="ButtonSlowImage" Source="/ButtonSlow.png" Stretch="Fill"/>
+                                            <Image x:Name="ButtonSlowImage" Source="component\Images\ButtonSlow.png" Stretch="Fill"/>
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
