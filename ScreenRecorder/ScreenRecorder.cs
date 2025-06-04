@@ -53,7 +53,7 @@ namespace ScreenRecordingLib
             public int Height => Bottom - Top;
         }
 
-        private RecordingSettings _settings;
+        public RecordingSettings _settings;
         private bool _isRecording;
         private Thread _captureThread;
         private IntPtr[] _windowHandles;

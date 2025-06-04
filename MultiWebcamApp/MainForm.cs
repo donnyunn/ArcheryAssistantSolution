@@ -63,6 +63,8 @@ namespace MultiWebcamApp
 
         private System.Windows.Forms.Timer _recorderTimer;
 
+        public Logger _logger = new Logger();
+
         public MainForm()
         {
             InitializeComponent();
@@ -128,6 +130,8 @@ namespace MultiWebcamApp
             _mainTimer.Start();
 
             this.WindowState = FormWindowState.Minimized;
+
+            _logger.LogActivity("Device On");
         }
 
         private void InitializeMainTimer()
@@ -509,6 +513,8 @@ namespace MultiWebcamApp
             //_delaySeconds = ((CustomTrackBar)sender).Value;
             _delaySeconds = (int)e.NewValue;
             _delayTextbox.Text = _delaySeconds.ToString();
+
+            _logger.LogActivity($"Key Pressed {_delaySeconds}");
         }
 
         private void PressureDisplay_ResetPortsRequested(object? sender, EventArgs e)
@@ -519,6 +525,8 @@ namespace MultiWebcamApp
                 {
                     _pressurePadSource.ResetAllPorts();
                     Console.WriteLine("Ports reset completed from MainForm.");
+
+                    _logger.LogActivity($"Button Pressed [ResetAllPorts]");
                 }
                 catch (Exception ex)
                 {
@@ -565,10 +573,17 @@ namespace MultiWebcamApp
                         _recorderTimer.Interval = _delaySeconds * 1000;
                         _recorderTimer.Start();
                     }
+
+                    if (recorder._settings.UseDesktop)
+                        _logger.LogActivity("PLAY ON:SAVE ON:HDD");
+                    else
+                        _logger.LogActivity("PLAY ON:SAVE ON:USB");
                 }
                 else
                 {
                     _displayManager.UiDisplaySetStatusMessage("PLAY", System.Windows.Media.Color.FromRgb(0,0xff,0), true);
+                    
+                    _logger.LogActivity("PLAY ON:SAVE OFF");
                 }
                 //_displayManager.UiDisplaySetStatusMessage("관찰을 시작합니다.");
             }
@@ -576,6 +591,7 @@ namespace MultiWebcamApp
             {
                 //_displayManager.UiDisplaySetStatusMessage("대기 상태로 돌아갑니다.");
                 _displayManager.UiDisplaySetStatusMessage("Stop", Colors.White);
+                _logger.LogActivity("Key Pressed Ready");
                 // 녹화 중이면 녹화 중지
                 if (_isRecording)
                 {
@@ -612,12 +628,16 @@ namespace MultiWebcamApp
                     _mode = OperationMode.Stop;
                     //_displayManager.UiDisplaySetStatusMessage("재생을 멈춥니다.");
                     _displayManager.UiDisplaySetStatusMessage("Stop", Colors.White);
+
+                    _logger.LogActivity("Key Pressed Pause");
                 }
                 else
                 {
                     _mode = OperationMode.Replay;
                     //_displayManager.UiDisplaySetStatusMessage("다시보기를 시작합니다.");
                     _displayManager.UiDisplaySetStatusMessage("Replay", Colors.Yellow);
+
+                    _logger.LogActivity("Key Pressed Replay");
                 }
                 UpdatePlayPauseButton();
 
@@ -641,6 +661,8 @@ namespace MultiWebcamApp
                 _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
 
+                _logger.LogActivity("Key Pressed REW");
+
                 // 녹화 중이면 녹화 중지
                 if (_isRecording)
                 {
@@ -660,6 +682,8 @@ namespace MultiWebcamApp
                 _buffer.PlayPosition = Math.Min(_buffer.Count - 1, _buffer.PlayPosition + 30);
                 _mode = OperationMode.Stop;
                 UpdatePlayPauseButton();
+
+                _logger.LogActivity("Key Pressed FF");
 
                 // 녹화 중이면 녹화 중지
                 if (_isRecording)
@@ -685,8 +709,10 @@ namespace MultiWebcamApp
 
                 _displayManager.UiDisplaySetSlowButtonText(_slowLevel);
                 
-                string slowMsg = _isSlowMode ? $"Slow x{1.0 / _slowLevel,1:F3}" : "Slow x1";
+                string slowMsg = _isSlowMode ? $"Slow x{1.0 / _slowLevel}" : "Slow x1";
                 _displayManager.UiDisplaySetStatusMessage(slowMsg, System.Windows.Media.Color.FromRgb(0, 0xB0, 0xF0));
+
+                _logger.LogActivity($"Key Pressed {slowMsg}");
             }
         }
 
@@ -714,12 +740,16 @@ namespace MultiWebcamApp
                     _isRecording = true;
                     _recordButton.Checked = true;
                     _displayManager.UiDisplaySetRecordingState(true);
+
+                    _logger.LogActivity("Key Pressed Blackbox (1)");
                 }
                 else
                 {
                     _isRecording = false; 
                     _recordButton.Checked = false;
                     _displayManager.UiDisplaySetRecordingState(false);
+
+                    _logger.LogActivity("Key Pressed Blackbox (0)");
                 }
             }
             catch (Exception ex)
@@ -821,6 +851,7 @@ namespace MultiWebcamApp
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            _logger.LogActivity("Device OFF");
             if (e.CloseReason == CloseReason.UserClosing && !_isClosing)
             {
                 e.Cancel = true;

@@ -573,37 +573,44 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="0"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="140"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- 제목 -->
-                    <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="측정 정보" 
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               Text="측정정보" 
                                FontSize="20"
                                FontWeight="Bold" 
                                Foreground="White" 
-                               Margin="15,5,5,10"/>
+                               Margin="0,0,0,0">
+                        <TextBlock.LayoutTransform>
+                            <RotateTransform Angle="0" />
+                        </TextBlock.LayoutTransform>
+                    </TextBlock>
 
                     <!-- 무게 표시 -->
-                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
                         <TextBlock Text="Total: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
+                                   VerticalAlignment="Center"
                                    Foreground="#CCCCCC"/>
                         <TextBlock x:Name="TotalPressureText" 
                                    Text="측정 대기 중" 
-                                   FontSize="28" 
+                                   FontSize="36" 
                                    FontWeight="Bold" 
                                    Foreground="#00AAFF"/>
                     </StackPanel>
 
-                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="15,5,5,5">
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
                         <TextBlock Text="FPS: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
+                                   VerticalAlignment="Center"
                                    Foreground="#CCCCCC"/>
                         <TextBlock x:Name="FPSText" 
                                    Text=" - Hz" 
@@ -611,48 +618,44 @@
                                    Foreground="#AACCFF"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="0" Grid.Column="1"
-                               Text="" 
-                               FontSize="20"
-                               FontWeight="Bold" 
-                               Foreground="White" 
-                               Margin="15,5,5,10"/>
-
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="15,5,5,5">
+                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Margin="15,5,5,5">
                         <TextBlock Text="L: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
+                                   VerticalAlignment="Center"
                                    Foreground="#CCCCCC"/>
                         <TextBlock x:Name="LeftPressureText" 
                                    Text="-" 
-                                   FontSize="28"
+                                   FontSize="36"
                                    Foreground="#00AAFF"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="2" Grid.Column="1"
+                    <TextBlock Grid.Row="2" Grid.Column="2"
                                x:Name="StatusText" 
                                Text="-" 
                                FontSize="28"
                                Foreground="#AACCFF"/>
 
-                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Margin="15,5,5,5">
+                    <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" Margin="15,5,5,5">
                         <TextBlock Text="R: " 
                                    FontSize="20" 
                                    FontWeight="Bold" 
+                                   VerticalAlignment="Center"
                                    Foreground="#CCCCCC"/>
                         <TextBlock x:Name="RightPressureText" 
                                    Text="-" 
-                                   FontSize="28"
+                                   FontSize="36"
                                    Foreground="#00AAFF"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="0" Grid.Column="3"
+                    <TextBlock Grid.Row="1" Grid.Column="4"
                                Text="사용자 입력" 
                                FontSize="20"
-                               FontWeight="Bold" 
+                               FontWeight="Bold"
+                                   VerticalAlignment="Center" 
                                Foreground="White" 
                                Margin="15,5,5,10"/>
-                    <StackPanel Grid.Row="1" Grid.Column="3">
+                    <StackPanel Grid.Row="2" Grid.Column="4">
                         <Button x:Name="ResetPortsButton" Content="장치 재연결" Width="100" Height="30"
                                 FontSize="14" FontWeight="Bold"
                                 HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,10,10"
