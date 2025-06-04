@@ -73,17 +73,15 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
         /// </summary>
         public async Task UploadLogFileAsync()
         {
-            _Logger.LogActivity("Google Drive 업로드 프로세스 시작.");
-
             if (!IsInternetConnected())
             {
-                _Logger.LogActivity("인터넷 연결이 없어 Google Drive 업로드를 건너뜝니다.");
+                _Logger.LogActivity("인터넷 연결이 없어 Google Drive 업로드를 건너뜁니다");
                 return;
             }
 
             if (HasUploadedToday())
             {
-                _Logger.LogActivity("오늘 이미 Google Drive에 업로드되었습니다. 업로드를 건너뜕니다.");
+                _Logger.LogActivity("오늘 이미 Google Drive에 업로드되었습니다. 업로드를 건너뜁니다");
                 return;
             }
 
@@ -92,8 +90,8 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
 
             if (!File.Exists(clientSecretsPath))
             {
-                _Logger.LogActivity($"오류: '{_clientSecretsFileName}' 파일을 찾을 수 없습니다. Google Drive API 설정이 필요합니다.");
-                _Logger.LogActivity("Google Cloud Console에서 OAuth 클라이언트 ID를 생성하고, 다운로드한 JSON 파일을 애플리케이션 실행 경로에 넣어주세요.");
+                _Logger.LogActivity($"오류: '{_clientSecretsFileName}' 파일을 찾을 수 없습니다. Google Drive API 설정이 필요합니다");
+                //_Logger.LogActivity("Google Cloud Console에서 OAuth 클라이언트 ID를 생성하고, 다운로드한 JSON 파일을 애플리케이션 실행 경로에 넣어주세요");
                 return;
             }
 
@@ -109,12 +107,12 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
                         CancellationToken.None,
                         new FileDataStore(_credentialsPath, true));
                 }
-                _Logger.LogActivity("Google Drive 인증 성공.");
+                _Logger.LogActivity("Google Drive 인증 성공");
             }
             catch (Exception ex)
             {
                 _Logger.LogActivity($"Google Drive 인증 실패: {ex.Message}");
-                _Logger.LogActivity("Google Drive 인증 실패 시, 'token.json' 파일을 삭제하고 다시 시도해볼 수 있습니다.");
+                //_Logger.LogActivity("Google Drive 인증 실패 시, 'token.json' 파일을 삭제하고 다시 시도해볼 수 있습니다");
                 return;
             }
 
@@ -127,7 +125,7 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
             string folderId = await GetOrCreateTargetFolder(service, _targetFolderName);
             if (string.IsNullOrEmpty(folderId))
             {
-                _Logger.LogActivity($"Google Drive 대상 폴더 '{_targetFolderName}'를 찾거나 생성할 수 없습니다.");
+                _Logger.LogActivity($"Google Drive 대상 폴더 '{_targetFolderName}'를 찾거나 생성할 수 없습니다");
                 return;
             }
 
@@ -174,7 +172,7 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
                             // 업로드 요청 객체 (requestToExecute) 자체에 포함된 ResponseBody를 사용합니다.
                             // 이 ResponseBody는 이미 Google.Apis.Drive.v3.Data.File 타입입니다.
                             var uploadedFile = (Google.Apis.Drive.v3.Data.File)requestToExecute.ResponseBody;
-                            _Logger.LogActivity($"파일 '{uploadedFile.Name}'이(가) Google Drive에 성공적으로 업로드되었습니다. (ID: {uploadedFile.Id})");
+                            _Logger.LogActivity($"파일 '{uploadedFile.Name}'이(가) Google Drive에 성공적으로 업로드되었습니다 (ID: {uploadedFile.Id})");
                             MarkUploadedToday();
                             break;
                         case UploadStatus.Failed:
@@ -284,7 +282,7 @@ namespace MultiWebcamApp // 프로젝트의 적절한 네임스페이스로 변�
                 }
 
                 File.WriteAllLines(_settingsFilePath, lines, Encoding.UTF8);
-                _Logger.LogActivity($"마지막 Google Drive 업로드 날짜를 {DateTime.Today.Date:yyyy-MM-dd}로 기록했습니다.");
+                _Logger.LogActivity($"마지막 Google Drive 업로드 날짜를 {DateTime.Today.Date:yyyy-MM-dd}로 기록했습니다");
             }
             catch (Exception ex)
             {
