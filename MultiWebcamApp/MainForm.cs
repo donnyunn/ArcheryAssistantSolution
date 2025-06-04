@@ -61,6 +61,8 @@ namespace MultiWebcamApp
         // 슬로우 모드용 카운터
         private int _slowCounter = 0;
 
+        private System.Windows.Forms.Timer _recorderTimer;
+
         public MainForm()
         {
             InitializeComponent();
@@ -103,6 +105,9 @@ namespace MultiWebcamApp
             _recordingStatusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _recordingStatusTimer.Tick += (s, e) => _displayManager.CallUiDisplayUpdateRecordingStatus();
             _recordingStatusTimer.Start();
+
+            _recorderTimer = new System.Windows.Forms.Timer();
+            _recorderTimer.Tick += RecorderTimer_Tick;
 
             recorder = new ScreenRecordingLib.ScreenRecorder();
 
@@ -526,6 +531,12 @@ namespace MultiWebcamApp
             }
         }
 
+        private void RecorderTimer_Tick(object sender, EventArgs e)
+        {
+            _recorderTimer.Stop();
+            recorder.StartRecording();
+        }
+
         private async void StartButton_Click(object? sender, EventArgs e)
         {
             _isStarted = !_isStarted;
@@ -544,7 +555,9 @@ namespace MultiWebcamApp
                 // 녹화 버튼이 체크되어 있으면 녹화 시작
                 if (_isRecording)
                 {
-                    recorder.StartRecording();
+                    //recorder.StartRecording();
+                    _recorderTimer.Interval = _delaySeconds * 1000;
+                    _recorderTimer.Start();
                     _displayManager.UiDisplaySetStatusMessage("Record", Colors.Red);
                 }
                 else

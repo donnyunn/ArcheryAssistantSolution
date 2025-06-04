@@ -70,7 +70,7 @@ namespace ScreenRecordingLib
         public delegate void MessageEventHandler(string message, System.Windows.Media.Color? color = null);
         public event MessageEventHandler OnStatusMessage;
 
-        private const int FILE_SPLIT_INTERVAL_MINUTES = 1;
+        private const int FILE_SPLIT_INTERVAL_MINUTES = 3;
         private DateTime _recordingStartTime;
         private DateTime _lastFileSplitTime;
         private string _currentOutputPath;
